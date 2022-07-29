@@ -206,7 +206,10 @@ class TDEERPytochLighting(pl.LightningModule):
         for index in range(batch_size):
             mapping = rematch(batch_offsets[index])
             text = batch_texts[index]
-            entity_heads, entity_tails = torch.where(entity_heads_logits[index] > self.threshold), torch.where(entity_tails_logits[index] > self.threshold)
+            attention_mask = batch_attention_masks[index].reshape(-1,1)
+            entity_heads_logit = entity_heads_logits[index]*attention_mask
+            entity_tails_logit = entity_tails_logits[index]*attention_mask
+            entity_heads, entity_tails = torch.where(entity_heads_logit > self.threshold), torch.where(entity_tails_logit > self.threshold)
             subjects = []
             entity_map = {}
             for head, head_type in zip(*entity_heads):
