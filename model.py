@@ -1,4 +1,3 @@
-from re import L
 import torch
 import torch.nn as nn
 from transformers.models.bert.modeling_bert import BertPreTrainedModel,BertModel
@@ -12,18 +11,19 @@ import json
 from transformers import DataCollatorWithPadding
 import argparse
 import pytorch_lightning as pl
-
+import copy
 
 class TDEER(nn.Module):
     def __init__(self, pretrain_path,relation_number):
         super().__init__()
-        config = BertConfig.from_pretrained(pretrain_path)
-        self.bert = BertModel.from_pretrained(pretrain_path)
+        self.bert = BertModel.from_pretrained(pretrain_path,cache_dir = "./bertbaseuncased")
+        config = BertConfig.from_pretrained(pretrain_path,cache_dir = "./bertbaseuncased")
+        
         hidden_size = config.hidden_size
         relation_size = relation_number
         self.relation_embedding = nn.Embedding(relation_size,hidden_size)
-        self.entity_heads_out = nn.Linear(hidden_size,2) # subjects 实体
-        self.entity_tails_out = nn.Linear(hidden_size,2) # objects 实体
+        self.entity_heads_out = nn.Linear(hidden_size,2) # 预测subjects,objects的头部位置
+        self.entity_tails_out = nn.Linear(hidden_size,2) # 预测subjects,objects的尾部位置
         self.rels_out = nn.Linear(hidden_size,relation_size) # 关系预测
         self.relu = nn.ReLU6()
         self.rel_feature = nn.Linear(hidden_size,hidden_size)
@@ -113,6 +113,7 @@ class TDEER(nn.Module):
 
         return pred_rels,pred_entity_heads,pred_entity_tails,pred_obj_head
 
+
 class FGM():
     def __init__(self, model):
         self.model = model
@@ -135,6 +136,7 @@ class FGM():
                 assert name in self.backup
                 param.data = self.backup[name]
         self.backup = {}
+
 
 class TDEERPytochLighting(pl.LightningModule):
     def __init__(self, pretrain_path,relation_number) -> None:
@@ -168,30 +170,37 @@ class TDEERPytochLighting(pl.LightningModule):
 
     def training_step(self,batch,step_idx):
         batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_entity_heads, batch_entity_tails, batch_rels, \
-            batch_sample_subj_head, batch_sample_subj_tail, batch_sample_rel, batch_sample_obj_heads= batch
+            batch_sample_subj_head, batch_sample_subj_tail, batch_sample_rel, batch_sample_obj_heads,batch_triple_sets,batch_text_masks= batch
         output = self.model(batch_tokens,batch_attention_masks,batch_segments,relation=batch_sample_rel,sub_head=batch_sample_subj_head,sub_tail=batch_sample_subj_tail)
         pred_rels,pred_entity_heads,pred_entity_tails,pred_obj_head = output
 
         rel_loss = self.rel_loss(pred_rels,batch_rels)
 
-        obj_loss = self.obj_loss(pred_obj_head,batch_sample_obj_heads)
-        obj_loss = (obj_loss*batch_attention_masks).sum()/batch_attention_masks.sum()
-
-        batch_attention_masks = batch_attention_masks.reshape(-1,1)
+        batch_text_mask = batch_text_masks.reshape(-1,1)
+        
         pred_entity_heads = pred_entity_heads.reshape(-1,2)
         batch_entity_heads = batch_entity_heads.reshape(-1,2)
         entity_head_loss =self.entity_head_loss(pred_entity_heads,batch_entity_heads)
-        entity_head_loss = (entity_head_loss*batch_attention_masks).sum()/batch_attention_masks.sum()
+        entity_head_loss = (entity_head_loss*batch_text_mask).sum()/batch_text_mask.sum()
         
         pred_entity_tails = pred_entity_tails.reshape(-1,2)
         batch_entity_tails = batch_entity_tails.reshape(-1,2)
         entity_tail_loss =self.entity_tail_loss(pred_entity_tails,batch_entity_tails)
-        entity_tail_loss = (entity_tail_loss*batch_attention_masks).sum()/batch_attention_masks.sum()
+        entity_tail_loss = (entity_tail_loss*batch_text_mask).sum()/batch_text_mask.sum()
+
+        pred_obj_head = pred_obj_head.reshape(-1,1)
+        batch_sample_obj_heads = batch_sample_obj_heads.reshape(-1,1)
+        obj_loss = self.obj_loss(pred_obj_head,batch_sample_obj_heads)
+        obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
+
+        # correct,total = self.validation(batch_tokens,batch_attention_masks, batch_segments,batch_offsets,batch_texts,batch_triple_sets)
+        
+        # self.log("total", total, prog_bar=True)
+        # self.log("correct", correct, prog_bar=True)
 
         return rel_loss+entity_head_loss+entity_tail_loss+5*obj_loss
     
-    def validation_step(self,batch,step_idx):
-        batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_sets = batch
+    def validation(self, batch_tokens,batch_attention_masks, batch_segments,batch_offsets,batch_texts,batch_triple_sets):
         bert_output = self.model.textEncode(batch_tokens,batch_attention_masks, batch_segments,)
         last_hidden_size = bert_output[0]
         pooler_output = bert_output[1]
@@ -207,6 +216,83 @@ class TDEERPytochLighting(pl.LightningModule):
             mapping = rematch(batch_offsets[index])
             text = batch_texts[index]
             attention_mask = batch_attention_masks[index].reshape(-1,1)
+            entity_heads_logit = entity_heads_logits[index]*attention_mask
+            entity_tails_logit = entity_tails_logits[index]*attention_mask
+            entity_heads, entity_tails = torch.where(entity_heads_logit > self.threshold), torch.where(entity_tails_logit > self.threshold)
+            subjects = []
+            entity_map = {}
+            for head, head_type in zip(*entity_heads):
+                for tail, tail_type in zip(*entity_tails):
+                    if head <= tail and head_type == tail_type:
+                        if head >=len(mapping) or tail>=len(mapping):
+                            break
+                        entity = self.decode_entity(text, mapping, head, tail)
+                        if head_type == 0:
+                            subjects.append((entity, head, tail))
+                        else:
+                            entity_map[head] = entity
+                        break
+
+            triple_set = set()
+            if len(subjects):
+                # translating decoding
+                relations = torch.where(relations_logits[index] > self.threshold)[0].tolist()
+                if relations:
+                    batch_sub_heads = []
+                    batch_sub_tails = []
+                    batch_rels = []
+                    batch_sub_entities = []
+                    batch_rel_types = []
+                    for (sub, sub_head, sub_tail) in subjects:
+                        for rel in relations:
+                            batch_sub_heads.append([sub_head])
+                            batch_sub_tails.append([sub_tail])
+                            batch_rels.append([rel])
+                            batch_sub_entities.append(sub)
+                            batch_rel_types.append(self.id2rel[str(rel)])
+                    batch_sub_heads = torch.tensor(batch_sub_heads,dtype=torch.long,device=last_hidden_size.device)
+                    batch_sub_tails = torch.tensor(batch_sub_tails,dtype=torch.long,device=last_hidden_size.device)
+                    batch_rels = torch.tensor(batch_rels,dtype=torch.long,device=last_hidden_size.device)
+                    hidden = last_hidden_size[index].unsqueeze(0)
+                    batch_sub_heads = batch_sub_heads.transpose(1,0)
+                    batch_sub_tails = batch_sub_tails.transpose(1,0)
+                    batch_rels = batch_rels.transpose(1,0)
+                    obj_head_logits = self.model.objModel(batch_rels,hidden,batch_sub_heads,batch_sub_tails)
+                    obj_head_logits = torch.sigmoid(obj_head_logits)
+                    for sub, rel, obj_head_logit in zip(batch_sub_entities, batch_rel_types, obj_head_logits):
+                        for h in torch.where(obj_head_logit > self.threshold)[0].cpu().numpy().tolist():
+                            if h in entity_map:
+                                obj = entity_map[h]
+                                triple_set.add((sub, rel, obj))
+            pred_triple_sets.append(triple_set)
+        correct = 0
+        predict = 0
+        total = 0 
+        for pred,target in zip(*(pred_triple_sets,batch_triple_sets)):
+            pred = set([tuple(l) for l in pred])
+            target = set([tuple(l) for l in target])
+            correct += len(set(pred).intersection(target))
+            predict += len(set(pred))
+            total += len(set(target))
+        return correct,total
+
+    def validation_step(self,batch,step_idx):
+        batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_sets,batch_triples_index_set,batch_text_masks = batch
+        bert_output = self.model.textEncode(batch_tokens,batch_attention_masks, batch_segments,)
+        last_hidden_size = bert_output[0]
+        pooler_output = bert_output[1]
+        entity_heads_logits, entity_tails_logits = self.model.entityModel(last_hidden_size)
+        entity_heads_logits = torch.sigmoid(entity_heads_logits)
+        entity_tails_logits = torch.sigmoid(entity_tails_logits)
+        relations_logits = self.model.relModel(pooler_output)
+        relations_logits = torch.sigmoid(relations_logits)
+        batch_size = entity_heads_logits.shape[0]
+
+        pred_triple_sets = []
+        for index in range(batch_size):
+            mapping = rematch(batch_offsets[index])
+            text = batch_texts[index]
+            attention_mask = batch_text_masks[index].reshape(-1,1)
             entity_heads_logit = entity_heads_logits[index]*attention_mask
             entity_tails_logit = entity_tails_logits[index]*attention_mask
             entity_heads, entity_tails = torch.where(entity_heads_logit > self.threshold), torch.where(entity_tails_logit > self.threshold)
@@ -364,7 +450,7 @@ def find_entity(source, target) -> int:
 class TDEERDataset(Dataset):
     def __init__(self,train_file,args,is_training = False):
         super().__init__()
-        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
         self.pad_sequences = DataCollatorWithPadding(self.tokenizer)
         self.is_training = is_training
         self.neg_samples = args.neg_samples
@@ -390,22 +476,46 @@ class TDEERDataset(Dataset):
             text_tokened = self.tokenizer(text,return_offsets_mapping=True)
             input_ids = text_tokened['input_ids']
             attention_masks = text_tokened['attention_mask']
+            text_masks = self.get_text_mask(attention_masks)
             token_type_ids = text_tokened['token_type_ids']
             offset_mapping = text_tokened['offset_mapping']
-            triples_set = set()   # (sub head, sub tail, obj head, obj tail, rel)
+            triples_index_set = set()   # (sub head, sub tail, obj head, obj tail, rel)
+            triples_set = set()
             for triple in data['triple_list']:
                 subj, rel, obj = triple
                 triples_set.add((subj, rel, obj))
+                subj, rel, obj = triple
+                rel_idx = self.rel2id[rel]
+                subj_tokened = self.tokenizer.encode(subj)
+                obj_tokened = self.tokenizer.encode(obj)
+                subj_head_idx = find_entity(input_ids, subj_tokened[1:-1])
+                subj_tail_idx = subj_head_idx + len(subj_tokened[1:-1]) - 1
+                obj_head_idx = find_entity(input_ids, obj_tokened[1:-1])
+                obj_tail_idx = obj_head_idx + len(obj_tokened[1:-1]) - 1
+                if subj_head_idx == -1 or obj_head_idx == -1:
+                    continue
+                # 0表示subject，1表示object
+                triples_index_set.add(
+                    (subj_head_idx, subj_tail_idx, obj_head_idx, obj_tail_idx, rel_idx)
+                )
+
             # postive samples
             self.datas.append({
                 "text":text,
                 'token_ids': input_ids,
                 "attention_masks":attention_masks,
                 "offset_mapping":offset_mapping,
+                "text_masks":text_masks,
                 'segment_ids': token_type_ids,
                 "length":len(input_ids),
-                "triples_set":triples_set
+                "triples_set":triples_set,
+                "triples_index_set":triples_index_set
             })
+    def get_text_mask(self,attention_masks):
+        new_atten_mask = copy.deepcopy(attention_masks)
+        new_atten_mask[0] = 0
+        new_atten_mask[-1]= 0
+        return new_atten_mask
 
     def preprocess(self,datas):
         for data in datas:
@@ -415,6 +525,7 @@ class TDEERDataset(Dataset):
             text_tokened = self.tokenizer(text,return_offsets_mapping=True)
             input_ids = text_tokened['input_ids']
             attention_masks = text_tokened['attention_mask']
+            text_masks = self.get_text_mask(attention_masks)
             token_type_ids = text_tokened['token_type_ids']
             offset_mapping = text_tokened['offset_mapping']
             text_length = len(input_ids)
@@ -424,8 +535,10 @@ class TDEERDataset(Dataset):
             subj_set = set()   # (sub head, sub tail)
             rel_set = set()
             trans_map = defaultdict(list)   # {(sub_head, rel): [tail_heads]}
+            triples_sets = set()
             for triple in data['triple_list']:
                 subj, rel, obj = triple
+                triples_sets.add((subj, rel, obj))
                 rel_idx = self.rel2id[rel]
                 subj_tokened = self.tokenizer.encode(subj)
                 obj_tokened = self.tokenizer.encode(obj)
@@ -480,6 +593,7 @@ class TDEERDataset(Dataset):
                     "text":text,
                     'token_ids': input_ids,
                     "attention_masks":attention_masks,
+                    "text_masks":text_masks,
                     "offset_mapping":offset_mapping,
                     'segment_ids': token_type_ids,
                     'entity_heads': entity_heads, # 所有实体的头部
@@ -490,6 +604,7 @@ class TDEERDataset(Dataset):
                     'sample_rel': rel_idx, # 单个subject对应的关系
                     'sample_obj_heads': sample_obj_heads, # 单个subject和rel对应的object
                     "length":len(input_ids),
+                    "triples_sets":triples_sets
                 })
 
                 # 只针对训练数据集进行负采样
@@ -506,6 +621,7 @@ class TDEERDataset(Dataset):
                         'token_ids': input_ids,
                         "attention_masks":attention_masks,
                         "offset_mapping":offset_mapping,
+                        "text_masks":text_masks,
                         'segment_ids': token_type_ids,
                         'entity_heads': entity_heads,
                         'entity_tails': entity_tails,
@@ -515,6 +631,7 @@ class TDEERDataset(Dataset):
                         'sample_rel': rel_idx,
                         'sample_obj_heads': np.zeros(text_length),  # set 0 for negative samples
                         "length":len(input_ids),
+                        "triples_sets":triples_sets
                     })
                     neg_history.add(neg_pair)
 
@@ -527,6 +644,7 @@ class TDEERDataset(Dataset):
                             "text":text,
                             'token_ids': input_ids,
                             "attention_masks":attention_masks,
+                            "text_masks":text_masks,
                             "offset_mapping":offset_mapping,
                             'segment_ids': token_type_ids,
                             'entity_heads': entity_heads,
@@ -537,6 +655,7 @@ class TDEERDataset(Dataset):
                             'sample_rel': neg_rel_idx,
                             'sample_obj_heads': np.zeros(text_length),  # set 0 for negative samples
                             "length":len(input_ids),
+                            "triples_sets":triples_sets
                         })
                         neg_history.add(neg_pair)
 
@@ -550,6 +669,7 @@ class TDEERDataset(Dataset):
                             'token_ids': input_ids,
                             'segment_ids': token_type_ids,
                             "attention_masks":attention_masks,
+                            "text_masks":text_masks,
                             "offset_mapping":offset_mapping,
                             'entity_heads': entity_heads,
                             'entity_tails': entity_tails,
@@ -559,6 +679,7 @@ class TDEERDataset(Dataset):
                             'sample_rel': rel_idx,
                             'sample_obj_heads': np.zeros(text_length),  # set 0 for negative samples
                             "length":len(input_ids),
+                            "triples_sets":triples_sets
                         })
                         neg_history.add(neg_pair)
 
@@ -587,34 +708,39 @@ def collate_fn(batches):
     batch_tokens = torch.zeros((batch_size,max_len),dtype=torch.int32)
     batch_attention_masks = torch.zeros((batch_size,max_len),dtype=torch.float32)
     batch_segments = torch.zeros((batch_size,max_len),dtype=torch.int32)
-    batch_entity_heads =torch.zeros((batch_size,max_len,2))
-    batch_entity_tails = torch.zeros((batch_size,max_len,2))
+    batch_entity_heads =torch.zeros((batch_size,max_len,2),dtype=torch.float32)
+    batch_entity_tails = torch.zeros((batch_size,max_len,2),dtype=torch.float32)
     batch_rels = []
     batch_sample_subj_head, batch_sample_subj_tail = [], []
     batch_sample_rel = []
     batch_sample_obj_heads = torch.zeros((batch_size,max_len),dtype=torch.float32)
     batch_texts = []
+    batch_text_masks = torch.zeros((batch_size,max_len),dtype=torch.float32)
     batch_offsets = []
+    batch_triples_sets = []
     for i,obj in enumerate(batches):
         length = obj['length']
         batch_texts.append(obj['text'])
         batch_offsets.append(obj['offset_mapping'])
         batch_tokens[i,:length] = torch.tensor(obj['token_ids'])
         batch_attention_masks[i,:length] = torch.tensor(obj['attention_masks'])
+        batch_text_masks[i,:length] = torch.tensor(obj['text_masks'])
         batch_segments[i,:length] = torch.tensor(obj['segment_ids'])
         batch_entity_heads[i,:length,:]= torch.tensor(obj['entity_heads'])
         batch_entity_tails[i,:length,:]= torch.tensor(obj['entity_tails'])
         batch_rels.append(obj['rels'])
         batch_sample_subj_head.append([obj['sample_subj_head']])
         batch_sample_subj_tail.append([obj['sample_subj_tail']])
+        
         batch_sample_rel.append([obj['sample_rel']])
         batch_sample_obj_heads[i,:length] = torch.tensor(obj['sample_obj_heads'])
+        batch_triples_sets.append(obj['triples_sets'])
     batch_rels = torch.from_numpy(np.array(batch_rels,dtype=np.int64))
     batch_sample_subj_head = torch.from_numpy(np.array(batch_sample_subj_head,dtype=np.int64))
     batch_sample_subj_tail = torch.from_numpy(np.array(batch_sample_subj_tail,dtype=np.int64))
     batch_sample_rel = torch.from_numpy(np.array(batch_sample_rel,dtype=np.int64))
 
-    return [batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_entity_heads, batch_entity_tails, batch_rels, batch_sample_subj_head, batch_sample_subj_tail, batch_sample_rel, batch_sample_obj_heads]
+    return [batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_entity_heads, batch_entity_tails, batch_rels, batch_sample_subj_head, batch_sample_subj_tail, batch_sample_rel, batch_sample_obj_heads,batch_triples_sets,batch_text_masks]
 
 
 def collate_fn_val(batches):
@@ -628,8 +754,10 @@ def collate_fn_val(batches):
     batch_tokens = torch.zeros((batch_size,max_len),dtype=torch.int32)
     batch_attention_masks = torch.zeros((batch_size,max_len),dtype=torch.float32)
     batch_segments = torch.zeros((batch_size,max_len),dtype=torch.int32)
+    batch_text_masks = torch.zeros((batch_size,max_len),dtype=torch.float32)
 
     batch_triple_set = []
+    batch_triples_index_set = []
     batch_texts = []
     batch_offsets = []
     for i,obj in enumerate(batches):
@@ -638,15 +766,17 @@ def collate_fn_val(batches):
         batch_offsets.append(obj['offset_mapping'])
         batch_tokens[i,:length] = torch.tensor(obj['token_ids'])
         batch_attention_masks[i,:length] = torch.tensor(obj['attention_masks'])
+        batch_text_masks[i,:length] = torch.tensor(obj['text_masks'])
         batch_segments[i,:length] = torch.tensor(obj['segment_ids'])
         batch_triple_set.append(obj['triples_set'])
+        batch_triples_index_set.append(obj['triples_index_set'])
 
-    return [batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_set]
+    return [batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_set,batch_triples_index_set,batch_text_masks]
 
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--pretrain_path', type=str, default="init_roberta", help='specify the model name')
+    parser.add_argument('--pretrain_path', type=str, default="bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str, default="TDEER/data/data/NYT/rel2id.json", help='specify the relation path')
     parser.add_argument('--train_file', type=str,default="TDEER-Torch/data/data/NYT/train_triples.json", help='specify the train path')
     parser.add_argument('--val_file', type=str,default="TDEER-Torch/data/data/NYT/dev_triples.json", help='specify the dev path')
@@ -654,7 +784,7 @@ def parser_args():
     parser.add_argument('--bert_dir', type=str, help='specify the pre-trained bert model')
     parser.add_argument('--learning_rate', default=2e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int, help='specify the epoch size')
-    parser.add_argument('--batch_size', default=48, type=int, help='specify the batch size')
+    parser.add_argument('--batch_size', default=40, type=int, help='specify the batch size')
     parser.add_argument('--neg_samples', default=2, type=int, help='specify negative sample num')
     parser.add_argument('--max_sample_triples', default=None, type=int, help='specify max sample triples')
     parser.add_argument('--verbose', default=2, type=int, help='specify verbose: 0 = silent, 1 = progress bar, 2 = one line per epoch')
@@ -663,8 +793,6 @@ def parser_args():
 
 args = parser_args()
 
-tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
-pad_sequences = DataCollatorWithPadding(tokenizer,padding=True)
 
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping,ModelCheckpoint,StochasticWeightAveraging
