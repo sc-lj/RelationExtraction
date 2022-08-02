@@ -12,6 +12,8 @@ from transformers import DataCollatorWithPadding
 import argparse
 import pytorch_lightning as pl
 import copy
+from EMA import FGM
+
 
 class TDEER(nn.Module):
     def __init__(self, pretrain_path,relation_number):
@@ -86,6 +88,7 @@ class TDEER(nn.Module):
         pred_obj_head = pred_obj_head.squeeze(-1)
         return pred_obj_head
 
+
     def textEncode(self,input_ids,attention_masks,token_type_ids):
         bert_output = self.bert(input_ids,attention_masks,token_type_ids)
         return bert_output
@@ -114,41 +117,18 @@ class TDEER(nn.Module):
         return pred_rels,pred_entity_heads,pred_entity_tails,pred_obj_head
 
 
-class FGM():
-    def __init__(self, model):
-        self.model = model
-        self.backup = {}
-
-    def attack(self, epsilon=1., emb_name='word_embeddings'):
-        # emb_name这个参数要换成你模型中embedding的参数名
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and emb_name in name:
-                self.backup[name] = param.data.clone()
-                norm = torch.norm(param.grad)
-                if norm != 0 and not torch.isnan(norm):
-                    r_at = epsilon * param.grad / norm
-                    param.data.add_(r_at)
-
-    def restore(self, emb_name='word_embeddings'):
-        # emb_name这个参数要换成你模型中embedding的参数名
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and emb_name in name: 
-                assert name in self.backup
-                param.data = self.backup[name]
-        self.backup = {}
-
 
 class TDEERPytochLighting(pl.LightningModule):
-    def __init__(self, pretrain_path,relation_number) -> None:
+    def __init__(self,args) -> None:
         super().__init__()
-        self.model = TDEER(pretrain_path,relation_number)
+        self.model = TDEER(args.pretrain_path,args.relation_number)
         # 只针对对抗训练时，关闭自动优化
         # self.automatic_optimization = False
         self.fgm = FGM(self.model)
         with open(args.relation,'r') as f:
             relation = json.load(f)
         self.id2rel = relation[0]
-        self.rel_loss = nn.MultiLabelMarginLoss()
+        self.rel_loss = nn.MultiLabelSoftMarginLoss()
         self.entity_head_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.entity_tail_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.obj_loss = nn.BCEWithLogitsLoss(reduction="none")
@@ -287,6 +267,10 @@ class TDEERPytochLighting(pl.LightningModule):
         relations_logits = self.model.relModel(pooler_output)
         relations_logits = torch.sigmoid(relations_logits)
         batch_size = entity_heads_logits.shape[0]
+        entity_heads_logits= entity_heads_logits.cpu().numpy()
+        entity_tails_logits = entity_tails_logits.cpu().numpy()
+        relations_logits = relations_logits.cpu().numpy()
+        batch_text_masks = batch_text_masks.cpu().numpy()
 
         pred_triple_sets = []
         for index in range(batch_size):
@@ -295,7 +279,8 @@ class TDEERPytochLighting(pl.LightningModule):
             attention_mask = batch_text_masks[index].reshape(-1,1)
             entity_heads_logit = entity_heads_logits[index]*attention_mask
             entity_tails_logit = entity_tails_logits[index]*attention_mask
-            entity_heads, entity_tails = torch.where(entity_heads_logit > self.threshold), torch.where(entity_tails_logit > self.threshold)
+
+            entity_heads, entity_tails = np.where(entity_heads_logit > self.threshold), np.where(entity_tails_logit > self.threshold)
             subjects = []
             entity_map = {}
             for head, head_type in zip(*entity_heads):
@@ -313,7 +298,7 @@ class TDEERPytochLighting(pl.LightningModule):
             triple_set = set()
             if len(subjects):
                 # translating decoding
-                relations = torch.where(relations_logits[index] > self.threshold)[0].tolist()
+                relations = np.where(relations_logits[index] > self.threshold)[0].tolist()
                 if relations:
                     batch_sub_heads = []
                     batch_sub_tails = []
@@ -336,8 +321,11 @@ class TDEERPytochLighting(pl.LightningModule):
                     batch_rels = batch_rels.transpose(1,0)
                     obj_head_logits = self.model.objModel(batch_rels,hidden,batch_sub_heads,batch_sub_tails)
                     obj_head_logits = torch.sigmoid(obj_head_logits)
+                    obj_head_logits = obj_head_logits.cpu().numpy()
+                    attention_mask = attention_mask.reshape(1,-1)
                     for sub, rel, obj_head_logit in zip(batch_sub_entities, batch_rel_types, obj_head_logits):
-                        for h in torch.where(obj_head_logit > self.threshold)[0].cpu().numpy().tolist():
+                        obj_head_logit = obj_head_logit*attention_mask
+                        for h in np.where(obj_head_logit > self.threshold)[1].tolist():
                             if h in entity_map:
                                 obj = entity_map[h]
                                 triple_set.add((sub, rel, obj))
@@ -355,7 +343,7 @@ class TDEERPytochLighting(pl.LightningModule):
         for pred,target in zip(*(preds,targets)):
             pred = set([tuple(l) for l in pred])
             target = set([tuple(l) for l in target])
-            correct += len(set(pred).intersection(target))
+            correct += len(set(pred)&(target))
             predict += len(set(pred))
             total += len(set(target))
         
@@ -774,70 +762,5 @@ def collate_fn_val(batches):
     return [batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_set,batch_triples_index_set,batch_text_masks]
 
 
-def parser_args():
-    parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--pretrain_path', type=str, default="bertbaseuncased", help='specify the model name')
-    parser.add_argument('--relation', type=str, default="TDEER/data/data/NYT/rel2id.json", help='specify the relation path')
-    parser.add_argument('--train_file', type=str,default="TDEER-Torch/data/data/NYT/train_triples.json", help='specify the train path')
-    parser.add_argument('--val_file', type=str,default="TDEER-Torch/data/data/NYT/dev_triples.json", help='specify the dev path')
-    parser.add_argument('--test_path', type=str,default="TDEER-Torch/data/data/NYT/test_triples.json", help='specify the test path')
-    parser.add_argument('--bert_dir', type=str, help='specify the pre-trained bert model')
-    parser.add_argument('--learning_rate', default=2e-5, type=float, help='specify the learning rate')
-    parser.add_argument('--epoch', default=100, type=int, help='specify the epoch size')
-    parser.add_argument('--batch_size', default=40, type=int, help='specify the batch size')
-    parser.add_argument('--neg_samples', default=2, type=int, help='specify negative sample num')
-    parser.add_argument('--max_sample_triples', default=None, type=int, help='specify max sample triples')
-    parser.add_argument('--verbose', default=2, type=int, help='specify verbose: 0 = silent, 1 = progress bar, 2 = one line per epoch')
-    args = parser.parse_args()
-    return args
 
-args = parser_args()
-
-
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping,ModelCheckpoint,StochasticWeightAveraging
-from EMA import EMACallBack
-checkpoint_callback = ModelCheckpoint(
-    save_top_k= 8,
-    verbose=True,
-    monitor='f1', # 监控val_acc指标
-    mode='max',
-    save_last = True, 
-    # dirpath = args.save_model_path.format(args.model_type),
-    every_n_epochs = 1,
-    # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}",
-    # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{l_r:.3f}{l_ac:.3f}",
-)
-
-early_stopping_callback = EarlyStopping(monitor="f1",
-                            patience = 8,
-                            mode = "max",
-                            )
-ema_callback = EMACallBack()
-swa_callback = StochasticWeightAveraging()
-
-trainer = pl.Trainer(max_epochs=20, 
-                    gpus=[0], 
-                    # accelerator = 'dp',
-                    # plugins=DDPPlugin(find_unused_parameters=True),
-                    check_val_every_n_epoch=1, # 每多少epoch执行一次validation
-                    callbacks = [checkpoint_callback,early_stopping_callback,ema_callback,swa_callback],
-                    accumulate_grad_batches = 3,# 累计梯度计算
-                    precision=16, # 半精度训练
-                    gradient_clip_val=3, #梯度剪裁,梯度范数阈值
-                    progress_bar_refresh_rate = 5, # 进度条默认每几个step更新一次
-                    amp_level = "O1",# 混合精度训练
-                    move_metrics_to_cpu = True,
-                    amp_backend = "apex",
-                    # resume_from_checkpoint ="lightning_logs/version_5/checkpoints/epoch=01f1=0.950acc=0.950recall=0.950.ckpt"
-                    )
-train_dataset = TDEERDataset(args.train_file,args,is_training=True)
-train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=True,num_workers=8,pin_memory=True)
-val_dataset = TDEERDataset(args.val_file,args,is_training=False)
-val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
-tokenizer_size = len(train_dataset.tokenizer)
-relation_number = train_dataset.relation_size
-model = TDEERPytochLighting(args.pretrain_path,relation_number)
-
-trainer.fit(model,train_dataloader=train_dataloader,val_dataloaders=val_dataloader)
 
