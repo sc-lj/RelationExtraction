@@ -575,6 +575,32 @@ class GlobalCrossEntropy(nn.Module):
             y_true, y_pred, threshold)
         return torch.mean(loss)
 
+
+class MutualInforLoss(nn.Module):
+    """通过互信息思想来缓解类别不平衡问题
+        https://kexue.fm/archives/7615
+    Args:
+        nn (_type_): _description_
+    """
+    def __init__(self,prior,tau=1.0) -> None:
+        super().__init__()
+        # 自己定义好prior,shape为[num_classes]
+        self.prior=torch.from_numpy(np.log(prior+1e-8))
+        self.tau = tau
+
+    def forward(self,inputs,targets):
+        """多标签损失函数
+            不能先用sigmoid函数
+        Args:
+            inputs (_type_): [batch_size,num_classes]
+            targets (_type_): _description_
+        """
+        batch_size = inputs.shape[0]
+        prior = self.prior.repeat(batch_size,1)
+        inputs = inputs+self.tau*prior
+        return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction= 'mean')
+
+
 class WarmupLR(_LRScheduler):
     """The WarmupLR scheduler
 
@@ -619,30 +645,6 @@ class WarmupLR(_LRScheduler):
     def set_step(self, step: int):
         self.last_epoch = step
 
-
-class MutualInforLoss(nn.Module):
-    """通过互信息思想来缓解类别不平衡问题
-        https://kexue.fm/archives/7615
-    Args:
-        nn (_type_): _description_
-    """
-    def __init__(self,prior,tau=1.0) -> None:
-        super().__init__()
-        # 自己定义好prior,shape为[num_classes]
-        self.prior=torch.from_numpy(np.log(prior+1e-8))
-        self.tau = tau
-
-    def forward(self,inputs,targets):
-        """多标签损失函数
-            不能先用sigmoid函数
-        Args:
-            inputs (_type_): [batch_size,num_classes]
-            targets (_type_): _description_
-        """
-        batch_size = inputs.shape[0]
-        prior = self.prior.repeat(batch_size,1)
-        inputs = inputs+self.tau*prior
-        return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction= 'mean')
 
 
 if __name__ == "__main__":

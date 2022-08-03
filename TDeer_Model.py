@@ -13,6 +13,43 @@ import argparse
 import pytorch_lightning as pl
 import copy
 from EMA import FGM
+from loss_func import WarmupLR
+import math
+import os
+
+
+class Linear(nn.Linear):
+    def reset_parameters(self) -> None:
+        nn.init.xavier_normal_(self.weight)
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+            nn.init.uniform_(self.bias, -bound, bound)
+
+class Attention(nn.Module):
+    def __init__(self,config):
+        super().__init__()
+        self.query = Linear(config.hidden_size, config.hidden_size)
+        self.key = Linear(config.hidden_size, config.hidden_size)
+        self.value = Linear(config.hidden_size, config.hidden_size)
+        self.attention_activation = nn.ReLU()
+        self.attention_epsilon = 1e10
+    
+    def forward(self,input_ids,mask):
+        q = self.query(input_ids)
+        k = self.key(input_ids)
+        v = self.value(input_ids)
+
+        q = self.attention_activation(q)
+        k = self.attention_activation(k)
+        v = self.attention_activation(v)
+
+        e = torch.matmul(q,k.transpose(2,1))
+        e -= self.attention_epsilon * (1.0 - mask)
+        a = torch.softmax(e,-1)
+        v_o = torch.matmul(a, v)
+        v_o += input_ids
+        return v_o
 
 
 class TDEER(nn.Module):
@@ -29,7 +66,8 @@ class TDEER(nn.Module):
         self.rels_out = nn.Linear(hidden_size,relation_size) # 关系预测
         self.relu = nn.ReLU6()
         self.rel_feature = nn.Linear(hidden_size,hidden_size)
-        self.attention = BertSelfAttention(config)
+        # self.attention = BertSelfAttention(config)
+        self.attention = Attention(config)
         self.obj_head = nn.Linear(hidden_size,1)
         self.hidden_size = hidden_size
     
@@ -47,7 +85,7 @@ class TDEER(nn.Module):
         pred_entity_tails = self.entity_tails_out(last_hidden_size)
         return pred_entity_heads,pred_entity_tails
 
-    def objModel(self,relation,last_hidden_size,sub_head,sub_tail):
+    def objModel(self,relation,last_hidden_size,sub_head,sub_tail,attention_mask):
         """_summary_
         Args:
             relation (_type_): [batch_size,1] or [batch_size, rel_num]
@@ -57,6 +95,8 @@ class TDEER(nn.Module):
         Returns:
             _type_: _description_
         """
+        # attention_mask = self.expand_attention_masks(attention_mask)
+        attention_mask = attention_mask.unsqueeze(1)
         # [batch_size,1,hidden_size]
         rel_feature = self.relation_embedding(relation)
         # [batch_size,1,hidden_size]
@@ -82,7 +122,8 @@ class TDEER(nn.Module):
             sub_feature = sub_feature.transpose(1,0)
         # [batch_size,seq_len,hidden_size]
         obj_feature = last_hidden_size+rel_feature+sub_feature
-        value,*_ = self.attention(obj_feature)
+        # value,*_ = self.attention(obj_feature,attention_mask)
+        value = self.attention(obj_feature,attention_mask)
         # [batch_size,seq_len,1]
         pred_obj_head = self.obj_head(value)
         pred_obj_head = pred_obj_head.squeeze(-1)
@@ -112,11 +153,18 @@ class TDEER(nn.Module):
         pooler_output = bert_output[1]
         pred_rels = self.relModel(pooler_output)
         pred_entity_heads,pred_entity_tails = self.entityModel(last_hidden_size)
-        pred_obj_head = self.objModel(relation,last_hidden_size,sub_head,sub_tail)
-
+        pred_obj_head = self.objModel(relation,last_hidden_size,sub_head,sub_tail,attention_masks)
         return pred_rels,pred_entity_heads,pred_entity_tails,pred_obj_head
 
-
+    def expand_attention_masks(self,attention_mask):
+        batch_size, seq_length = attention_mask.shape 
+        causal_mask = attention_mask.unsqueeze(2).repeat(1,1,seq_length) * attention_mask[:,None,:]
+        # in case past_key_values are used we need to add a prefix ones mask to the causal mask
+        # causal and attention masks must have same type with pytorch version < 1.3
+        causal_mask = causal_mask.to(attention_mask.dtype)
+        extended_attention_mask = causal_mask[:, None, :, :]
+        extended_attention_mask = (1e-10)*(1-extended_attention_mask)
+        return extended_attention_mask
 
 class TDEERPytochLighting(pl.LightningModule):
     def __init__(self,args) -> None:
@@ -133,6 +181,8 @@ class TDEERPytochLighting(pl.LightningModule):
         self.entity_tail_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.obj_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.threshold = 0.5
+        self.args = args
+        self.epoch = 0
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
@@ -173,89 +223,8 @@ class TDEERPytochLighting(pl.LightningModule):
         obj_loss = self.obj_loss(pred_obj_head,batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
 
-        # correct,total = self.validation(batch_tokens,batch_attention_masks, batch_segments,batch_offsets,batch_texts,batch_triple_sets)
-        
-        # self.log("total", total, prog_bar=True)
-        # self.log("correct", correct, prog_bar=True)
-
         return rel_loss+entity_head_loss+entity_tail_loss+5*obj_loss
     
-    def validation(self, batch_tokens,batch_attention_masks, batch_segments,batch_offsets,batch_texts,batch_triple_sets):
-        bert_output = self.model.textEncode(batch_tokens,batch_attention_masks, batch_segments,)
-        last_hidden_size = bert_output[0]
-        pooler_output = bert_output[1]
-        entity_heads_logits, entity_tails_logits = self.model.entityModel(last_hidden_size)
-        entity_heads_logits = torch.sigmoid(entity_heads_logits)
-        entity_tails_logits = torch.sigmoid(entity_tails_logits)
-        relations_logits = self.model.relModel(pooler_output)
-        relations_logits = torch.sigmoid(relations_logits)
-        batch_size = entity_heads_logits.shape[0]
-
-        pred_triple_sets = []
-        for index in range(batch_size):
-            mapping = rematch(batch_offsets[index])
-            text = batch_texts[index]
-            attention_mask = batch_attention_masks[index].reshape(-1,1)
-            entity_heads_logit = entity_heads_logits[index]*attention_mask
-            entity_tails_logit = entity_tails_logits[index]*attention_mask
-            entity_heads, entity_tails = torch.where(entity_heads_logit > self.threshold), torch.where(entity_tails_logit > self.threshold)
-            subjects = []
-            entity_map = {}
-            for head, head_type in zip(*entity_heads):
-                for tail, tail_type in zip(*entity_tails):
-                    if head <= tail and head_type == tail_type:
-                        if head >=len(mapping) or tail>=len(mapping):
-                            break
-                        entity = self.decode_entity(text, mapping, head, tail)
-                        if head_type == 0:
-                            subjects.append((entity, head, tail))
-                        else:
-                            entity_map[head] = entity
-                        break
-
-            triple_set = set()
-            if len(subjects):
-                # translating decoding
-                relations = torch.where(relations_logits[index] > self.threshold)[0].tolist()
-                if relations:
-                    batch_sub_heads = []
-                    batch_sub_tails = []
-                    batch_rels = []
-                    batch_sub_entities = []
-                    batch_rel_types = []
-                    for (sub, sub_head, sub_tail) in subjects:
-                        for rel in relations:
-                            batch_sub_heads.append([sub_head])
-                            batch_sub_tails.append([sub_tail])
-                            batch_rels.append([rel])
-                            batch_sub_entities.append(sub)
-                            batch_rel_types.append(self.id2rel[str(rel)])
-                    batch_sub_heads = torch.tensor(batch_sub_heads,dtype=torch.long,device=last_hidden_size.device)
-                    batch_sub_tails = torch.tensor(batch_sub_tails,dtype=torch.long,device=last_hidden_size.device)
-                    batch_rels = torch.tensor(batch_rels,dtype=torch.long,device=last_hidden_size.device)
-                    hidden = last_hidden_size[index].unsqueeze(0)
-                    batch_sub_heads = batch_sub_heads.transpose(1,0)
-                    batch_sub_tails = batch_sub_tails.transpose(1,0)
-                    batch_rels = batch_rels.transpose(1,0)
-                    obj_head_logits = self.model.objModel(batch_rels,hidden,batch_sub_heads,batch_sub_tails)
-                    obj_head_logits = torch.sigmoid(obj_head_logits)
-                    for sub, rel, obj_head_logit in zip(batch_sub_entities, batch_rel_types, obj_head_logits):
-                        for h in torch.where(obj_head_logit > self.threshold)[0].cpu().numpy().tolist():
-                            if h in entity_map:
-                                obj = entity_map[h]
-                                triple_set.add((sub, rel, obj))
-            pred_triple_sets.append(triple_set)
-        correct = 0
-        predict = 0
-        total = 0 
-        for pred,target in zip(*(pred_triple_sets,batch_triple_sets)):
-            pred = set([tuple(l) for l in pred])
-            target = set([tuple(l) for l in target])
-            correct += len(set(pred).intersection(target))
-            predict += len(set(pred))
-            total += len(set(target))
-        return correct,total
-
     def validation_step(self,batch,step_idx):
         batch_texts,batch_offsets,batch_tokens,batch_attention_masks, batch_segments, batch_triple_sets,batch_triples_index_set,batch_text_masks = batch
         bert_output = self.model.textEncode(batch_tokens,batch_attention_masks, batch_segments,)
@@ -276,9 +245,9 @@ class TDEERPytochLighting(pl.LightningModule):
         for index in range(batch_size):
             mapping = rematch(batch_offsets[index])
             text = batch_texts[index]
-            attention_mask = batch_text_masks[index].reshape(-1,1)
-            entity_heads_logit = entity_heads_logits[index]*attention_mask
-            entity_tails_logit = entity_tails_logits[index]*attention_mask
+            text_attention_mask = batch_text_masks[index].reshape(-1,1)
+            entity_heads_logit = entity_heads_logits[index]*text_attention_mask
+            entity_tails_logit = entity_tails_logits[index]*text_attention_mask
 
             entity_heads, entity_tails = np.where(entity_heads_logit > self.threshold), np.where(entity_tails_logit > self.threshold)
             subjects = []
@@ -316,39 +285,65 @@ class TDEERPytochLighting(pl.LightningModule):
                     batch_sub_tails = torch.tensor(batch_sub_tails,dtype=torch.long,device=last_hidden_size.device)
                     batch_rels = torch.tensor(batch_rels,dtype=torch.long,device=last_hidden_size.device)
                     hidden = last_hidden_size[index].unsqueeze(0)
+                    attention_mask = batch_attention_masks[index].unsqueeze(0)
                     batch_sub_heads = batch_sub_heads.transpose(1,0)
                     batch_sub_tails = batch_sub_tails.transpose(1,0)
                     batch_rels = batch_rels.transpose(1,0)
-                    obj_head_logits = self.model.objModel(batch_rels,hidden,batch_sub_heads,batch_sub_tails)
+                    obj_head_logits = self.model.objModel(batch_rels,hidden,batch_sub_heads,batch_sub_tails,attention_mask)
                     obj_head_logits = torch.sigmoid(obj_head_logits)
                     obj_head_logits = obj_head_logits.cpu().numpy()
-                    attention_mask = attention_mask.reshape(1,-1)
+                    text_attention_mask = text_attention_mask.reshape(1,-1)
                     for sub, rel, obj_head_logit in zip(batch_sub_entities, batch_rel_types, obj_head_logits):
-                        obj_head_logit = obj_head_logit*attention_mask
+                        obj_head_logit = obj_head_logit*text_attention_mask
                         for h in np.where(obj_head_logit > self.threshold)[1].tolist():
                             if h in entity_map:
                                 obj = entity_map[h]
                                 triple_set.add((sub, rel, obj))
             pred_triple_sets.append(triple_set)
-        return pred_triple_sets,batch_triple_sets
+        return batch_texts,pred_triple_sets,batch_triple_sets
 
     def validation_epoch_end(self, outputs):
         preds,targets = [],[]
-        for pred,target in outputs:
+        texts = []
+        for text,pred,target in outputs:
             preds.extend(pred)
             targets.extend(target)
+            texts.extend(text)
+
         correct = 0
         predict = 0
         total = 0 
-        for pred,target in zip(*(preds,targets)):
+        orders = ['subject', 'relation', 'object']
+        
+        os.makedirs(os.path.join(self.args.output_path,self.args.model_type),exist_ok=True)
+        writer = open(os.path.join(self.args.output_path,self.args.model_type,'val_output_{}.json'.format(self.epoch)),'w')
+        for text,pred,target in zip(*(texts,preds,targets)):
             pred = set([tuple(l) for l in pred])
             target = set([tuple(l) for l in target])
             correct += len(set(pred)&(target))
             predict += len(set(pred))
             total += len(set(target))
-        
+            result = json.dumps({
+                                'text': text,
+                                'golds': [
+                                    dict(zip(orders, triple)) for triple in target
+                                ],
+                                'preds': [
+                                    dict(zip(orders, triple)) for triple in pred
+                                ],
+                                'new': [
+                                    dict(zip(orders, triple)) for triple in pred - target
+                                ],
+                                'lack': [
+                                    dict(zip(orders, triple)) for triple in target - pred
+                                ]
+                                }, ensure_ascii=False)
+            writer.write(result + '\n')
+        writer.close()
+
+        self.epoch += 1
         real_acc = round(correct/predict,5) if predict!=0 else 0
-        real_recall = round(correct/total)
+        real_recall = round(correct/total,5)
         real_f1 = round(2*(real_recall*real_acc)/(real_recall+real_acc), 5) if (real_recall+real_acc)!=0 else 0
         self.log("tot", total, prog_bar=True)
         self.log("cor", correct, prog_bar=True)
@@ -369,7 +364,7 @@ class TDEERPytochLighting(pl.LightningModule):
             only_sub_rel_tot += len(set(target))
 
         real_acc = round(only_sub_rel_cor/only_sub_rel_pred,5) if only_sub_rel_pred!=0 else 0
-        real_recall = round(only_sub_rel_cor/only_sub_rel_tot)
+        real_recall = round(only_sub_rel_cor/only_sub_rel_tot,5)
         real_f1 = round(2*(real_recall*real_acc)/(real_recall+real_acc), 5) if (real_recall+real_acc)!=0 else 0
         self.log("sr_tot", only_sub_rel_tot, prog_bar=True)
         self.log("sr_cor", only_sub_rel_cor, prog_bar=True)
@@ -402,7 +397,8 @@ class TDEERPytochLighting(pl.LightningModule):
         optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=2e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
         milestones = list(range(3,50,3))
-        StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
+        # StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
+        StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
         return optim_dict
 
@@ -499,6 +495,7 @@ class TDEERDataset(Dataset):
                 "triples_set":triples_set,
                 "triples_index_set":triples_index_set
             })
+    
     def get_text_mask(self,attention_masks):
         new_atten_mask = copy.deepcopy(attention_masks)
         new_atten_mask[0] = 0

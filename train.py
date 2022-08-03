@@ -14,18 +14,21 @@ def parser_args():
     parser.add_argument('--val_file', type=str,default="TDEER-Torch/data/data/NYT/dev_triples.json", help='specify the dev path')
     parser.add_argument('--test_path', type=str,default="TDEER-Torch/data/data/NYT/test_triples.json", help='specify the test path')
     parser.add_argument('--bert_dir', type=str, help='specify the pre-trained bert model')
-    parser.add_argument('--learning_rate', default=1e-5, type=float, help='specify the learning rate')
+    parser.add_argument('--learning_rate', default=5e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int, help='specify the epoch size')
     parser.add_argument('--batch_size', default=40, type=int, help='specify the batch size')
-    parser.add_argument('--neg_samples', default=2, type=int, help='specify negative sample num')
-    parser.add_argument('--max_sample_triples', default=None, type=int, help='specify max sample triples')
     parser.add_argument('--model_type', default="tdeer",type=str, help='specify max sample triples')
-    parser.add_argument('--verbose', default=2, type=int, help='specify verbose: 0 = silent, 1 = progress bar, 2 = one line per epoch')
+    parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
+
+    # For TDEER Model
+    parser.add_argument('--max_sample_triples', default=None, type=int, help='specify max sample triples')
+    parser.add_argument('--neg_samples', default=2, type=int, help='specify negative sample num')
+
+    
     args = parser.parse_args()
     return args
 
 args = parser_args()
-
 
 
 checkpoint_callback = ModelCheckpoint(
@@ -37,7 +40,7 @@ checkpoint_callback = ModelCheckpoint(
     # dirpath = args.save_model_path.format(args.model_type),
     every_n_epochs = 1,
     # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}",
-    # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{l_r:.3f}{l_ac:.3f}",
+    filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}{sr_rec:.3f}{sr_acc:.3f}",
 )
 
 early_stopping_callback = EarlyStopping(monitor="f1",
