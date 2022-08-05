@@ -645,6 +645,25 @@ class WarmupLR(_LRScheduler):
     def set_step(self, step: int):
         self.last_epoch = step
 
+class TwoStepLR(_LRScheduler):
+
+    def __init__(self, optimizer,lr,steps,  last_epoch=-1, verbose=False):
+        self.learning_rate = lr
+        self.steps = steps
+        self.min_learning_rate: float = 5e-6
+        self.passed = -1
+        super(TwoStepLR, self).__init__(optimizer, last_epoch, verbose)
+
+    def get_lr(self):
+        if self.passed < self.steps:
+            self.passed += 1
+            return [(self.passed + 1.) / self.steps * group['lr'] for group in self.optimizer.param_groups]
+        elif self.steps <= self.passed < self.steps * 2:
+            self.passed += 1
+            return [(2 - (self.passed + 1.) / self.steps) * (group['lr'] - self.min_learning_rate)+self.min_learning_rate for group in self.optimizer.param_groups]
+        else:
+            return [group['lr']*-0.1 for group in self.optimizer.param_groups]
+
 
 
 if __name__ == "__main__":

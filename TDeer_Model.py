@@ -13,7 +13,7 @@ import argparse
 import pytorch_lightning as pl
 import copy
 from EMA import FGM
-from loss_func import WarmupLR
+from loss_func import WarmupLR,TwoStepLR
 import math
 import os
 
@@ -32,7 +32,7 @@ class Attention(nn.Module):
         self.query = Linear(config.hidden_size, config.hidden_size)
         self.key = Linear(config.hidden_size, config.hidden_size)
         self.value = Linear(config.hidden_size, config.hidden_size)
-        self.attention_activation = nn.ReLU()
+        self.attention_activation = nn.ReLU6()
         self.attention_epsilon = 1e10
     
     def forward(self,input_ids,mask):
@@ -48,7 +48,7 @@ class Attention(nn.Module):
         e -= self.attention_epsilon * (1.0 - mask)
         a = torch.softmax(e,-1)
         v_o = torch.matmul(a, v)
-        v_o += input_ids
+        v_o += v
         return v_o
 
 
@@ -183,6 +183,7 @@ class TDEERPytochLighting(pl.LightningModule):
         self.threshold = 0.5
         self.args = args
         self.epoch = 0
+        self.steps = args.steps
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
@@ -323,22 +324,18 @@ class TDEERPytochLighting(pl.LightningModule):
             correct += len(set(pred)&(target))
             predict += len(set(pred))
             total += len(set(target))
-            result = json.dumps({
-                                'text': text,
-                                'golds': [
-                                    dict(zip(orders, triple)) for triple in target
-                                ],
-                                'preds': [
-                                    dict(zip(orders, triple)) for triple in pred
-                                ],
-                                'new': [
-                                    dict(zip(orders, triple)) for triple in pred - target
-                                ],
-                                'lack': [
-                                    dict(zip(orders, triple)) for triple in target - pred
-                                ]
-                                }, ensure_ascii=False)
-            writer.write(result + '\n')
+            new  = [dict(zip(orders, triple)) for triple in pred - target]
+            lack = [dict(zip(orders, triple)) for triple in target - pred]
+            if len(new) or len(lack):
+                result = json.dumps({
+                                    'text': text,
+                                    'golds': [dict(zip(orders, triple)) for triple in target],
+                                    'preds': [dict(zip(orders, triple)) for triple in pred],
+                                    'new': new,
+                                    'lack': lack
+                                    }, 
+                                    ensure_ascii=False)
+                writer.write(result + '\n')
         writer.close()
 
         self.epoch += 1
@@ -394,11 +391,12 @@ class TDEERPytochLighting(pl.LightningModule):
                 {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
                 ]
     
-        optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=2e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
-        milestones = list(range(3,50,3))
-        # StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
-        StepLR = WarmupLR(optimizer,25000)
+        milestones = list(range(2,20,2))
+        StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
+        # StepLR = WarmupLR(optimizer,5000)
+        # StepLR = TwoStepLR(optimizer,lr=5e-5,steps = self.steps)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
         return optim_dict
 

@@ -2,4 +2,6 @@
 test*
 __pycache__
 /data/data
-
+lightning_logs
+event_extract
+bertbaseuncased
