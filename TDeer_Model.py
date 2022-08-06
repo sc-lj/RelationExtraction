@@ -32,7 +32,7 @@ class Attention(nn.Module):
         self.query = Linear(config.hidden_size, config.hidden_size)
         self.key = Linear(config.hidden_size, config.hidden_size)
         self.value = Linear(config.hidden_size, config.hidden_size)
-        self.attention_activation = nn.ReLU6()
+        self.attention_activation = nn.ReLU()
         self.attention_epsilon = 1e10
     
     def forward(self,input_ids,mask):
@@ -48,8 +48,77 @@ class Attention(nn.Module):
         e -= self.attention_epsilon * (1.0 - mask)
         a = torch.softmax(e,-1)
         v_o = torch.matmul(a, v)
-        v_o += v
+        v_o += input_ids
         return v_o
+
+class ConditionalLayerNorm(nn.Module):
+    def __init__(self,
+                 normalized_shape,
+                 cond_shape,
+                 eps=1e-12):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.Tensor(normalized_shape))
+        self.bias = nn.Parameter(torch.Tensor(normalized_shape))
+        self.weight_dense = nn.Linear(cond_shape, normalized_shape, bias=False)
+        self.bias_dense = nn.Linear(cond_shape, normalized_shape, bias=False)
+        self.reset_weight_and_bias()
+
+    def reset_weight_and_bias(self):
+        """
+        此处初始化的作用是在训练开始阶段不让 conditional layer norm 起作用
+        """
+        nn.init.ones_(self.weight)
+        nn.init.zeros_(self.bias)
+
+        nn.init.zeros_(self.weight_dense.weight)
+        nn.init.zeros_(self.bias_dense.weight)
+
+    def forward(self, inputs, cond=None):
+        assert cond is not None, 'Conditional tensor need to input when use conditional layer norm'
+        # cond = torch.unsqueeze(cond, 1)  # (b, 1, h*2)
+
+        weight = self.weight_dense(cond) + self.weight  # (b, 1, h)
+        bias = self.bias_dense(cond) + self.bias  # (b, 1, h)
+
+        mean = torch.mean(inputs, dim=-1, keepdim=True)  # （b, s, 1）
+        outputs = inputs - mean  # (b, s, h)
+
+        variance = torch.mean(outputs ** 2, dim=-1, keepdim=True)
+        std = torch.sqrt(variance + self.eps)  # (b, s, 1)
+
+        outputs = outputs / std  # (b, s, h)
+
+        outputs = outputs*weight + bias
+
+        return outputs
+
+
+class SpatialDropout(nn.Module):
+    """
+    对字级别的向量进行丢弃
+    """
+    def __init__(self, drop_prob):
+        super(SpatialDropout, self).__init__()
+        self.drop_prob = drop_prob
+
+    @staticmethod
+    def _make_noise(input):
+        return input.new().resize_(input.size(0), 1, input.size(2))
+
+    def forward(self, inputs):
+        output = inputs.clone()
+        if not self.training or self.drop_prob == 0:
+            return inputs
+        else:
+            noise = self._make_noise(inputs)
+            if self.drop_prob == 1:
+                noise.fill_(0)
+            else:
+                noise.bernoulli_(1 - self.drop_prob).div_(1 - self.drop_prob)
+            noise = noise.expand_as(inputs)
+            output.mul_(noise)
+        return output
 
 
 class TDEER(nn.Module):
@@ -69,6 +138,8 @@ class TDEER(nn.Module):
         # self.attention = BertSelfAttention(config)
         self.attention = Attention(config)
         self.obj_head = nn.Linear(hidden_size,1)
+        self.words_dropout = SpatialDropout(0.1)
+        self.conditionlayernormal = ConditionalLayerNorm(hidden_size,hidden_size)
         self.hidden_size = hidden_size
     
     def relModel(self,pooler_output):
@@ -79,6 +150,7 @@ class TDEER(nn.Module):
     
     def entityModel(self,last_hidden_size):
         # predict entity
+        # last_hidden_size = self.words_dropout(last_hidden_size)
         # [batch,seq_len,2]
         pred_entity_heads = self.entity_heads_out(last_hidden_size)
         # [batch,seq_len,2]
@@ -95,13 +167,13 @@ class TDEER(nn.Module):
         Returns:
             _type_: _description_
         """
+        # last_hidden_size = self.words_dropout(last_hidden_size)
         # attention_mask = self.expand_attention_masks(attention_mask)
         attention_mask = attention_mask.unsqueeze(1)
         # [batch_size,1,hidden_size]
         rel_feature = self.relation_embedding(relation)
         # [batch_size,1,hidden_size]
         rel_feature = self.relu(self.rel_feature(rel_feature))
-        
         # [batch_size,1,1]
         sub_head = sub_head.unsqueeze(-1)
         # [batch_size,1,hidden_size]
@@ -120,8 +192,10 @@ class TDEER(nn.Module):
             rel_feature = rel_feature.transpose(1,0)
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1,0)
+        last_hidden_size = self.conditionlayernormal(last_hidden_size,rel_feature) # [batch_size,seq_len,hidden_size
         # [batch_size,seq_len,hidden_size]
-        obj_feature = last_hidden_size+rel_feature+sub_feature
+        # obj_feature = last_hidden_size+rel_feature+sub_feature
+        obj_feature = last_hidden_size+sub_feature
         # value,*_ = self.attention(obj_feature,attention_mask)
         value = self.attention(obj_feature,attention_mask)
         # [batch_size,seq_len,1]
@@ -150,6 +224,7 @@ class TDEER(nn.Module):
         # 文本编码
         bert_output = self.textEncode(input_ids,attention_masks,token_type_ids)
         last_hidden_size = bert_output[0]
+        # last_hidden_size = self.words_dropout(last_hidden_size)
         pooler_output = bert_output[1]
         pred_rels = self.relModel(pooler_output)
         pred_entity_heads,pred_entity_tails = self.entityModel(last_hidden_size)
@@ -183,7 +258,6 @@ class TDEERPytochLighting(pl.LightningModule):
         self.threshold = 0.5
         self.args = args
         self.epoch = 0
-        self.steps = args.steps
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
@@ -324,17 +398,20 @@ class TDEERPytochLighting(pl.LightningModule):
             correct += len(set(pred)&(target))
             predict += len(set(pred))
             total += len(set(target))
-            new  = [dict(zip(orders, triple)) for triple in pred - target]
+            new = [dict(zip(orders, triple)) for triple in pred - target]
             lack = [dict(zip(orders, triple)) for triple in target - pred]
             if len(new) or len(lack):
                 result = json.dumps({
                                     'text': text,
-                                    'golds': [dict(zip(orders, triple)) for triple in target],
-                                    'preds': [dict(zip(orders, triple)) for triple in pred],
-                                    'new': new,
+                                    'golds': [
+                                        dict(zip(orders, triple)) for triple in target
+                                    ],
+                                    'preds': [
+                                        dict(zip(orders, triple)) for triple in pred
+                                    ],
+                                    'new':new,
                                     'lack': lack
-                                    }, 
-                                    ensure_ascii=False)
+                                    }, ensure_ascii=False)
                 writer.write(result + '\n')
         writer.close()
 
@@ -391,12 +468,11 @@ class TDEERPytochLighting(pl.LightningModule):
                 {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
                 ]
     
-        optimizer = torch.optim.AdamW(self.parameters(), lr=5e-5)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=2e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
-        milestones = list(range(2,20,2))
+        milestones = list(range(2,50,2))
         StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
-        # StepLR = WarmupLR(optimizer,5000)
-        # StepLR = TwoStepLR(optimizer,lr=5e-5,steps = self.steps)
+        # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
         return optim_dict
 

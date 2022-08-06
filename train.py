@@ -23,7 +23,7 @@ def parser_args():
 
     # For TDEER Model
     parser.add_argument('--max_sample_triples', default=None, type=int, help='specify max sample triples')
-    parser.add_argument('--neg_samples', default=5, type=int, help='specify negative sample num')
+    parser.add_argument('--neg_samples', default=2, type=int, help='specify negative sample num')
 
     args = parser.parse_args()
     return args
