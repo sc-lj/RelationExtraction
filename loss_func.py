@@ -598,6 +598,68 @@ class MutualInforLoss(nn.Module):
         inputs = inputs+self.tau*prior
         return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction= 'mean')
 
+def poly1_cross_entropy_torch(logits, labels, class_number=3, epsilon=1.0):
+    """多项式损失与交叉熵进行结合
+    Args:
+        logits (_type_): [N,class_number]
+        labels (_type_): [N,]
+        class_number (int, optional): _description_. Defaults to 3.
+        epsilon (float, optional): _description_. Defaults to 1.0.
+
+    Returns:
+        _type_: _description_
+    """
+    poly1 = torch.sum(F.one_hot(labels, class_number).float() * F.softmax(logits), dim=-1)
+    ce_loss = F.cross_entropy(torch.tensor(logits), torch.tensor(labels), reduction='none')
+    poly1_ce_loss = ce_loss + epsilon * (1 - poly1)
+    return poly1_ce_loss
+
+
+class FocalLoss_v1(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2, num_classes=3):
+        super(FocalLoss_v1, self).__init__()
+        self.alpha = torch.zeros(num_classes)
+        self.alpha[0] += alpha
+        self.alpha[1:] += (1 - alpha)
+        self.gamma = gamma
+
+    def forward(self, logits, labels):
+        logits = logits.view(-1, logits.size(-1))
+        self.alpha = self.alpha.to(logits.device)
+        logits_logsoft = F.log_softmax(logits, dim=1)
+        logits_softmax = torch.exp(logits_logsoft)
+        logits_softmax = logits_softmax.gather(1, labels.view(-1, 1))
+        logits_logsoft = logits_logsoft.gather(1, labels.view(-1, 1))
+        self.alpha = self.alpha.gather(0, labels.view(-1))
+        loss = -torch.mul(torch.pow((1 - logits_softmax), self.gamma), logits_logsoft)
+        loss = torch.mul(self.alpha, loss.t())[0, :]
+        return loss
+
+
+def poly1_focal_loss_torch(logits, labels, alpha=0.25, gamma=2, num_classes=3, epsilon=1.0):
+    """多项式损失加focal loss损失
+
+    Args:
+        logits (_type_): _description_
+        labels (_type_): _description_
+        alpha (float, optional): _description_. Defaults to 0.25.
+        gamma (int, optional): _description_. Defaults to 2.
+        num_classes (int, optional): _description_. Defaults to 3.
+        epsilon (float, optional): _description_. Defaults to 1.0.
+
+    Returns:
+        _type_: _description_
+    """
+    focal_loss_func = MultiCEFocalLoss(num_classes,alpha, gamma)
+    focal_loss = focal_loss_func(logits, labels)
+
+    p = F.sigmoid(logits)
+    labels = F.one_hot(labels, num_classes)
+    labels = torch.tensor(labels, dtype=torch.float32)
+    poly1 = labels * p + (1 - labels) * (1 - p)
+    poly1_focal_loss = focal_loss + torch.mean(epsilon * torch.pow(1 - poly1, 2 + 1), dim=-1)
+    return poly1_focal_loss
+
 
 class WarmupLR(_LRScheduler):
     """The WarmupLR scheduler
