@@ -8,8 +8,11 @@ import copy
 
 
 class HandshakingTaggingScheme(object):
-    def __init__(self, rel2id, max_seq_len, entity_type2id):
+    def __init__(self, args):
         super().__init__()
+        with open(args.relation, 'r') as f:
+            relation = json.load(f)
+        rel2id = relation[1]
         self.rel2id = rel2id
         self.id2rel = {ind: rel for rel, ind in rel2id.items()}
 
@@ -22,7 +25,8 @@ class HandshakingTaggingScheme(object):
         # 将关系类型和组合类型进行组合,{RELNAME\u2E80SH2OH,RELNAME\u2E80OH2SH}
         self.tags = {self.separator.join(
             [rel, lt]) for rel in self.rel2id.keys() for lt in self.link_types}
-
+        with open(args.ent2id_path, 'r') as f:
+            entity_type2id = json.load(f)
         self.ent2id = entity_type2id
         self.id2ent = {ind: ent for ent, ind in self.ent2id.items()}
         # 将实体类型和实体表示组合
@@ -34,7 +38,7 @@ class HandshakingTaggingScheme(object):
 
         self.tag2id = {t: idx for idx, t in enumerate(self.tags)}
         self.id2tag = {idx: t for t, idx in self.tag2id.items()}
-        self.matrix_size = max_seq_len
+        self.matrix_size = args.max_seq_len
 
         # map,上三角组合
         # e.g. [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)]
@@ -139,7 +143,7 @@ class HandshakingTaggingScheme(object):
         '''
         spots = []
         nonzero_points = torch.nonzero(shaking_tag, as_tuple=False)
-        for point in nonzero_points:
+        for index,point in enumerate(nonzero_points):
             shaking_idx, tag_idx = point[0].item(), point[1].item()
             pos1, pos2 = self.shaking_idx2matrix_idx[shaking_idx]
             spot = (pos1, pos2, tag_idx)
@@ -462,7 +466,7 @@ class DataMaker4BiLSTM():
 
 
 class MetricsCalculator():
-    def __init__(self, shaking_tagger):
+    def __init__(self, shaking_tagger:HandshakingTaggingScheme):
         self.shaking_tagger = shaking_tagger
         self.last_weights = None  # for exponential moving averaging
 
@@ -740,16 +744,17 @@ class MetricsCalculator():
 
 
 class TplinkerDataProcess():
-    def __init__(self,args,filename,is_training) -> None:
+    def __init__(self,args,filename,get_tok2char_span_map,is_training) -> None:
+        self._get_tok2char_span_map = get_tok2char_span_map
         self.args = args
         with open(filename, 'r') as f:
             lines = json.load(f)
-        self.preprocess(lines)
         if is_training:
             self.data_type = "train"
         else:
             self.data_type = "val"
-
+        self.preprocess(lines)
+        
     def preprocess(self, data):
         """预处理文本
         Args:
@@ -810,9 +815,10 @@ class TplinkerDataProcess():
             json.dump(rel2id, open(rel2id_path, "w",
                       encoding="utf-8"), ensure_ascii=False)
 
-        if not os.path.exists(self.ent2id_path):
-            json.dump(ent2id, open(self.ent2id_path, "w",
+        if not os.path.exists(self.args.ent2id_path):
+            json.dump(ent2id, open(self.args.ent2id_path, "w",
                       encoding="utf-8"), ensure_ascii=False)
+    
     def add_char_span(self, dataset, ignore_subword_match=True):
         miss_sample_list = []
         for sample in tqdm(dataset, desc="adding char level spans"):
@@ -853,8 +859,6 @@ class TplinkerDataProcess():
                 sample["entity_list"] = new_ent_list
         return dataset, miss_sample_list
 
-
-
     # check token level span
     def check_tok_span(self, data):
         def extr_ent(text, tok_span, tok2char_span):
@@ -866,7 +870,7 @@ class TplinkerDataProcess():
         span_error_memory = set()
         for sample in tqdm(data, desc="check tok spans"):
             text = sample["text"]
-            tok2char_span = self.get_tok2char_span_map(text)
+            tok2char_span = self._get_tok2char_span_map(text)
             for ent in sample["entity_list"]:
                 tok_span = ent["tok_span"]
                 if extr_ent(text, tok_span, tok2char_span) != ent["text"]:

@@ -330,11 +330,9 @@ class TPLinkerPlusBiLSTM(nn.Module):
 
 
 class TPlinkerPytochLighting(pl.LightningModule):
-    def __init__(self, args) -> None:
+    def __init__(self, args,handshaking_tagger) -> None:
         super().__init__()
         self.args = args
-
-        handshaking_tagger = self.args.handshaking_tagger
         self.metrics = MetricsCalculator(handshaking_tagger)
         self.tag_size = handshaking_tagger.get_tag_size()
         self.model = TPLinkerPlusBert(args.pretrain_path, self.tag_size,
@@ -353,7 +351,7 @@ class TPlinkerPytochLighting(pl.LightningModule):
     def loss_func(self, y_pred, y_true):
         return self.metrics.loss_func(y_pred, y_true, ghm=self.args.ghm)
 
-    def validation_step(self, batch):
+    def validation_step(self, batch,step_idx):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
         pred_shaking_outputs, _ = self.model(batch_input_ids,
                                              batch_attention_mask,
@@ -426,31 +424,34 @@ class TPlinkerPytochLighting(pl.LightningModule):
 
 
 class TPlinkerDataset(Dataset):
-    def __init__(self, train_file, args, data_maker, tokenizer, is_training=False):
+    def __init__(self, args, data_maker, tokenizer, is_training=False):
         super().__init__()
 
         self.is_training = is_training
         self.batch_size = args.batch_size
 
         self.datas = []
-
+        self._tokenize = tokenizer.tokenize
         self.get_tok2char_span_map = lambda text: tokenizer.encode_plus(
             text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
-
-
+        
         self.args = args
-
+        
+        if is_training:
+            self.data_type = "train"
+        else:
+            self.data_type = "val"
+            
         data_path = os.path.join(
             self.args.data_out_dir, "{}.json".format(self.data_type))
 
         with open(data_path, 'r') as f:
             data = json.load(f)
 
-        self.data = self.split_into_short_samples(
+        data = self.split_into_short_samples(
             data, max_seq_len=self.args.max_seq_len, data_type=self.data_type)
-        self.ent2id_path = os.path.join(self.args.data_out_dir, "ent2id.json")
 
-        self.datas = data_maker.get_indexed_data(self.data, args.max_seq_len)
+        self.datas = data_maker.get_indexed_data(data, args.max_seq_len)
 
     def split_into_short_samples(self, sample_list, max_seq_len, sliding_len=50, encoder="BERT", data_type="train"):
         new_sample_list = []
@@ -458,7 +459,7 @@ class TPlinkerDataset(Dataset):
             text_id = sample["id"]
             text = sample["text"]
             tokens = self._tokenize(text)
-            tok2char_span = self._get_tok2char_span_map(text)
+            tok2char_span = self.get_tok2char_span_map(text)
 
             # sliding at token level
             split_sample_list = []

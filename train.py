@@ -2,14 +2,18 @@ import argparse
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.plugins import DDPPlugin
+from sympy import true
 from EMA import EMACallBack
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import json
+import os
 
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
+    parser.add_argument('--model_type', default="tplinker",
+                        type=str, help='specify max sample triples',choices=['tdeer',"tplinker"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -28,8 +32,6 @@ def parser_args():
                         help='specify the epoch size')
     parser.add_argument('--batch_size', default=8, type=int,
                         help='specify the batch size')
-    parser.add_argument('--model_type', default="tdeer",
-                        type=str, help='specify max sample triples')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
 
@@ -52,7 +54,7 @@ def parser_args():
                         type=str, help='specify max sample triples')
     parser.add_argument('--rel_add_dist', default=False,
                         type=bool, help='specify max sample triples')
-    parser.add_argument('--max_seq_len', default=100, type=int,
+    parser.add_argument('--max_seq_len', default=512, type=int,
                         help='specify negative sample num')
     parser.add_argument('--sliding_len', default=20, type=int,
                         help='specify negative sample num')
@@ -72,88 +74,83 @@ def parser_args():
     parser.add_argument('--word_embedding_dim', default=300, type=int,
                         help='the paramter of encoder lstm ')
     parser.add_argument('--data_out_dir', default="./data/data/NYT", type=str,
-                        help='the paramter of encoder lstm ')
+                        help='处理后的数据保存的路径')
+    # for tplinker preprocess args
+    parser.add_argument('--separate_char_by_white', default=False, type=bool,
+                        help='e.g. "$%sdkn839," -> "$% sdkn839 ," , will make original char spans invalid')
+    parser.add_argument('--add_char_span', default=True, type=bool,
+                        help='set add_char_span to false if it already exists')   
+    parser.add_argument('--ignore_subword', default=True,type=bool,help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')
+    parser.add_argument('--check_tok_span', default=True,type=bool,help="check whether there is any error with token spans, if there is, print the unmatch info")
+    parser.add_argument('--ent2id_path', default="./data/data/NYT/ent2id.json",type=str,help="预处理的实体标签的保存路径")  
+    parser.add_argument('--tok_pair_sample_rate', default=1,)
+    
     args = parser.parse_args()
     return args
 
+def main():
+    args = parser_args()
+    if args.model_type == "tdeer":
+        from TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
+        train_dataset = TDEERDataset(args.train_file, args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
+                                    batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        val_dataset = TDEERDataset(args.val_file, args, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
+        relation_number = train_dataset.relation_size
+        args.relation_number = relation_number
+        args.steps = len(train_dataset)
+        model = TDEERPytochLighting(args)
 
-args = parser_args()
+    elif args.model_type == "tplinker":
+        from TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
+        from tplinker_utils import HandshakingTaggingScheme, DataMaker4Bert,TplinkerDataProcess
+        from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
+        
+        tokenizer = BertTokenizerFast.from_pretrained(
+            args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=False)
+        get_tok2char_span_map = lambda text: tokenizer.encode_plus(text, return_offsets_mapping = True, add_special_tokens = False)["offset_mapping"]
+        # 数据预处理
+        data_path = os.path.join(args.data_out_dir, "train.json")
+        if not os.path.exists(data_path):
+            TplinkerDataProcess(args,args.train_file,get_tok2char_span_map,is_training=True)
+        data_path = os.path.join(args.data_out_dir, "val.json")
+        if not os.path.exists(data_path):
+            TplinkerDataProcess(args,args.val_file,get_tok2char_span_map,is_training=False)
+        
+        handshaking_tagger = HandshakingTaggingScheme(args)
+        data_maker = DataMaker4Bert(tokenizer, handshaking_tagger)
+        
+        train_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=True)
+        train_dataloader = DataLoader(train_dataset,batch_size=args.batch_size,shuffle=True,num_workers=6,drop_last=False,
+                                        collate_fn=data_maker.generate_batch)
+        val_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=False)
+        val_dataloader = DataLoader(val_dataset,batch_size=args.batch_size,collate_fn=data_maker.generate_batch)
+        
+        model = TPlinkerPytochLighting(args,handshaking_tagger)
 
-
-checkpoint_callback = ModelCheckpoint(
-    save_top_k=8,
-    verbose=True,
-    monitor='f1',  # 监控val_acc指标
-    mode='max',
-    save_last=True,
-    # dirpath = args.save_model_path.format(args.model_type),
-    every_n_epochs=1,
-    # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}",
-    filename="{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}{sr_rec:.3f}{sr_acc:.3f}",
-)
-
-early_stopping_callback = EarlyStopping(monitor="f1",
-                                        patience=8,
-                                        mode="max",
-                                        )
-
-if args.model_type == "tdeer":
-    from TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
-    train_dataset = TDEERDataset(args.train_file, args, is_training=True)
-    train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
-                                  batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-    val_dataset = TDEERDataset(args.val_file, args, is_training=False)
-    val_dataloader = DataLoader(
-        val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
-    tokenizer_size = len(train_dataset.tokenizer)
-    relation_number = train_dataset.relation_size
-    args.relation_number = relation_number
-    args.steps = len(train_dataset)
-    model = TDEERPytochLighting(args)
-
-elif args.model_type == "tplinker":
-    from TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
-    from tplinker_utils import HandshakingTaggingScheme, DataMaker4Bert
-    from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
-    with open(args.relation, 'r') as f:
-        relation = json.load(f)
-    rel2id = relation[1]
-
-    with open(args.ent2id_path, 'r') as f:
-        ent2id = json.load(f)
-    handshaking_tagger = HandshakingTaggingScheme(
-        rel2id, args.max_seq_len, ent2id)
-    args.handshaking_tagger = handshaking_tagger
-
-    tokenizer = BertTokenizerFast.from_pretrained(
-        args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=False)
-    data_maker = DataMaker4Bert(tokenizer, handshaking_tagger)
-    train_dataset = TPlinkerDataset(
-        args.train_file, args, data_maker, tokenizer, is_training=True)
-
-    train_dataloader = DataLoader(train_dataset,
-                                  batch_size=args.batch_size,
-                                  shuffle=True,
-                                  num_workers=6,
-                                  drop_last=False,
-                                  collate_fn=data_maker.generate_batch,
-                                  )
-    val_dataset = TPlinkerDataset(
-        args.val_file, args, data_maker, tokenizer, is_training=True)
-    val_dataloader = DataLoader(val_dataset,
-                                  batch_size=args.batch_size,
-                                  shuffle=True,
-                                  num_workers=6,
-                                  drop_last=False,
-                                  collate_fn=data_maker.generate_batch,
-                                  )
-    model = TPlinkerPytochLighting(args)
-
-elif args.model_type == "prgc":
-    pass
+    elif args.model_type == "prgc":
+        pass
 
 
-if __name__ == "__main__":
+    checkpoint_callback = ModelCheckpoint(
+        save_top_k=8,
+        verbose=True,
+        monitor='f1',  # 监控val_acc指标
+        mode='max',
+        save_last=True,
+        # dirpath = args.save_model_path.format(args.model_type),
+        every_n_epochs=1,
+        # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}",
+        filename="{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}{sr_rec:.3f}{sr_acc:.3f}",
+    )
+
+    early_stopping_callback = EarlyStopping(monitor="f1",
+                                            patience=8,
+                                            mode="max",
+                                            )
+
     ema_callback = EMACallBack()
     swa_callback = StochasticWeightAveraging()
 
@@ -175,3 +172,8 @@ if __name__ == "__main__":
                          )
     trainer.fit(model, train_dataloader=train_dataloader,
                 val_dataloaders=val_dataloader)
+
+
+if __name__ == "__main__":
+    main()
+    
