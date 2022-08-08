@@ -671,8 +671,9 @@ class GHM(nn.Module):
         '''
         gradient_norm: gradient_norms of all examples in this batch; (batch_size, label)
         >> ghm = GHM()
-        >> import torch.nn.functional as F
-        >> loss = F.cross_entropy(inputs,targets)
+        >> import torch.nn as nn
+        >> loss_func = nn.CrossEntropyLoss(reduction="none")
+        >> loss = loss_func(inputs,targets)
         >> ghm.ghm(loss, bins=1000)
         '''
         avg = torch.mean(gradient)
