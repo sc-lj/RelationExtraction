@@ -13,7 +13,7 @@ import argparse
 import pytorch_lightning as pl
 import copy
 from EMA import FGM
-from loss_func import WarmupLR,TwoStepLR
+from loss_func import WarmupLR,TwoStepLR,MLFocalLoss,BCEFocalLoss
 import math
 import os
 
@@ -192,10 +192,10 @@ class TDEER(nn.Module):
             rel_feature = rel_feature.transpose(1,0)
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1,0)
-        last_hidden_size = self.conditionlayernormal(last_hidden_size,rel_feature) # [batch_size,seq_len,hidden_size
+        last_hidden_size = self.conditionlayernormal(last_hidden_size,rel_feature+sub_feature) # [batch_size,seq_len,hidden_size
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
-        obj_feature = last_hidden_size+sub_feature
+        obj_feature = last_hidden_size
         # value,*_ = self.attention(obj_feature,attention_mask)
         value = self.attention(obj_feature,attention_mask)
         # [batch_size,seq_len,1]
@@ -224,7 +224,7 @@ class TDEER(nn.Module):
         # 文本编码
         bert_output = self.textEncode(input_ids,attention_masks,token_type_ids)
         last_hidden_size = bert_output[0]
-        # last_hidden_size = self.words_dropout(last_hidden_size)
+        last_hidden_size = self.words_dropout(last_hidden_size)
         pooler_output = bert_output[1]
         pred_rels = self.relModel(pooler_output)
         pred_entity_heads,pred_entity_tails = self.entityModel(last_hidden_size)
@@ -255,6 +255,8 @@ class TDEERPytochLighting(pl.LightningModule):
         self.entity_head_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.entity_tail_loss = nn.BCEWithLogitsLoss(reduction="none")
         self.obj_loss = nn.BCEWithLogitsLoss(reduction="none")
+        self.focal_loss = MLFocalLoss()
+        self.b_focal_loss = BCEFocalLoss(alpha=0.25,gamma=2)
         self.threshold = 0.5
         self.args = args
         self.epoch = 0
@@ -279,7 +281,7 @@ class TDEERPytochLighting(pl.LightningModule):
         output = self.model(batch_tokens,batch_attention_masks,batch_segments,relation=batch_sample_rel,sub_head=batch_sample_subj_head,sub_tail=batch_sample_subj_tail)
         pred_rels,pred_entity_heads,pred_entity_tails,pred_obj_head = output
 
-        rel_loss = self.rel_loss(pred_rels,batch_rels)
+        rel_loss = self.rel_loss(pred_rels,batch_rels)+self.focal_loss(pred_rels,batch_rels)
 
         batch_text_mask = batch_text_masks.reshape(-1,1)
         
@@ -295,7 +297,7 @@ class TDEERPytochLighting(pl.LightningModule):
 
         pred_obj_head = pred_obj_head.reshape(-1,1)
         batch_sample_obj_heads = batch_sample_obj_heads.reshape(-1,1)
-        obj_loss = self.obj_loss(pred_obj_head,batch_sample_obj_heads)
+        obj_loss = self.obj_loss(pred_obj_head,batch_sample_obj_heads)+self.b_focal_loss(pred_obj_head,batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
 
         return rel_loss+entity_head_loss+entity_tail_loss+5*obj_loss

@@ -222,12 +222,10 @@ class BCEFocalLoss(nn.Module):
         pt = torch.sigmoid(preds) # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)    
         pt = torch.clamp(pt,self.epsilon,1-self.epsilon)    
         loss = - self.alpha * (1 - pt) ** self.gamma * target * torch.log(pt) - (1 - self.alpha) * pt ** self.gamma * (1 - target) * torch.log(1 - pt)   
-        if self.size_average:        
-            loss = loss.mean()
-        else:            
-            loss = loss.sum()
-        if torch.isinf(loss):
-            print(loss)   
+        # if self.size_average:        
+        #     loss = loss.mean()
+        # else:            
+        #     loss = loss.sum() 
         return loss
 
 class MLFocalLoss(nn.Module):
