@@ -511,7 +511,6 @@ class TDEERDataset(Dataset):
     def __init__(self,train_file,args,is_training = False):
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
-        self.pad_sequences = DataCollatorWithPadding(self.tokenizer)
         self.is_training = is_training
         self.neg_samples = args.neg_samples
         self.batch_size = args.batch_size

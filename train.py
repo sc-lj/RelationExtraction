@@ -77,7 +77,7 @@ def parser_args():
                         help='处理后的数据保存的路径')
     # for tplinker preprocess args
     parser.add_argument('--separate_char_by_white', default=False, type=bool,
-                        help='e.g. "$%sdkn839," -> "$% sdkn839 ," , will make original char spans invalid')
+                        help='e.g. "$%sdkn839," -> "$% sdkn839," , will make original char spans invalid')
     parser.add_argument('--add_char_span', default=True, type=bool,
                         help='set add_char_span to false if it already exists')   
     parser.add_argument('--ignore_subword', default=True,type=bool,help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')

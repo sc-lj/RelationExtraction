@@ -6,7 +6,6 @@ import re
 import copy
 
 
-
 class HandshakingTaggingScheme(object):
     def __init__(self, args):
         super().__init__()

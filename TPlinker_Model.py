@@ -156,7 +156,7 @@ class HandshakingKernel(nn.Module):
         return inner_context
 
     def forward(self, seq_hiddens):
-        '''
+        ''' Handshaking Kernel 的机制，当前字符与后续字符的所有组合的表征。
         seq_hiddens: (batch_size, seq_len, hidden_size)
         return:
             shaking_hiddenss: (batch_size, (1 + seq_len) * \
@@ -167,22 +167,26 @@ class HandshakingKernel(nn.Module):
         for ind in range(seq_len):
             hidden_each_step = seq_hiddens[:, ind, :]
             visible_hiddens = seq_hiddens[:, ind:, :]  # ind: only look back
+            # 将hidden_each_step shape转换为与visible_hiddens一致
             repeat_hiddens = hidden_each_step[:, None, :].repeat(
                 1, seq_len - ind, 1)
-
-            if self.shaking_type == "cat":
+            # 当前ind 位置的token的表征与该位置后面的所有token的表征的交互方式
+            if self.shaking_type == "cat": # 直接拼接
                 shaking_hiddens = torch.cat(
                     [repeat_hiddens, visible_hiddens], dim=-1)
                 shaking_hiddens = torch.tanh(self.combine_fc(shaking_hiddens))
             elif self.shaking_type == "cat_plus":
+                # 对该位置后的所有token的表征进行二次提取
                 inner_context = self.enc_inner_hiddens(
                     visible_hiddens, self.inner_enc_type)
                 shaking_hiddens = torch.cat(
                     [repeat_hiddens, visible_hiddens, inner_context], dim=-1)
                 shaking_hiddens = torch.tanh(self.combine_fc(shaking_hiddens))
             elif self.shaking_type == "cln":
+                # 使用layernormal进行特征提取
                 shaking_hiddens = self.tp_cln(visible_hiddens, repeat_hiddens)
             elif self.shaking_type == "cln_plus":
+                # 二次交互后，再加layer normal
                 inner_context = self.enc_inner_hiddens(
                     visible_hiddens, self.inner_enc_type)
                 shaking_hiddens = self.tp_cln(visible_hiddens, repeat_hiddens)
@@ -229,22 +233,25 @@ class TPLinkerPlusBert(nn.Module):
         sampled_tok_pair_indices = None
         if self.training:
             # randomly sample segments of token pairs
+            # 对Handshaking Kernel 的序列分段，并随机采样
             shaking_seq_len = shaking_hiddens.size()[1]
+            # 每段的长度
             segment_len = int(shaking_seq_len * self.tok_pair_sample_rate)
+            # 可以分多少段
             seg_num = math.ceil(shaking_seq_len // segment_len)
+            # 随机取一段，并获取该段的start 索引
             start_ind = torch.randint(seg_num, []) * segment_len
             end_ind = min(start_ind + segment_len, shaking_seq_len)
             # sampled_tok_pair_indices: (batch_size, ~segment_len) ~end_ind - start_ind <= segment_len
-            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[
-                None, :].repeat(shaking_hiddens.size()[0], 1)
-#             sampled_tok_pair_indices = torch.randint(shaking_seq_len, (shaking_hiddens.size()[0], segment_len))
-            sampled_tok_pair_indices = sampled_tok_pair_indices.to(
-                shaking_hiddens.device)
+            # 该段再原序列的索引
+            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[None, :].repeat(shaking_hiddens.size()[0], 1)
+            # sampled_tok_pair_indices = torch.randint(shaking_seq_len, (shaking_hiddens.size()[0], segment_len))
+            sampled_tok_pair_indices = sampled_tok_pair_indices.to(shaking_hiddens.device)
 
             # sampled_tok_pair_indices will tell model what token pairs should be fed into fcs
             # shaking_hiddens: (batch_size, ~segment_len, hidden_size)
-            shaking_hiddens = shaking_hiddens.gather(
-                1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, shaking_hiddens.size()[-1]))
+            # 获取该段的handshaking表征
+            shaking_hiddens = shaking_hiddens.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, shaking_hiddens.size()[-1]))
 
         # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_seq_len, tag_size)
         outputs = self.fc(shaking_hiddens)
@@ -342,8 +349,8 @@ class TPlinkerPytochLighting(pl.LightningModule):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
         pred_small_shaking_outputs, sampled_tok_pair_indices = self.model(
             batch_input_ids, batch_attention_mask, batch_token_type_ids)
-        batch_small_shaking_tag = batch_shaking_tag.gather(
-            1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.tag_size))
+        # 采样段对应的标签
+        batch_small_shaking_tag = batch_shaking_tag.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.tag_size))
         loss = self.loss_func(pred_small_shaking_outputs,
                               batch_small_shaking_tag)
         return loss
