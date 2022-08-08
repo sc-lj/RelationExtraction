@@ -85,6 +85,13 @@ def parser_args():
     parser.add_argument('--ent2id_path', default="./data/data/NYT/ent2id.json",type=str,help="预处理的实体标签的保存路径")  
     parser.add_argument('--tok_pair_sample_rate', default=1,)
     
+    # for PRGC model 
+    parser.add_argument('--corres_threshold', type=float, default=0.5, help="threshold of global correspondence")
+    parser.add_argument('--rel_threshold', type=float, default=0.5, help="threshold of relation judgement")
+    parser.add_argument('--ensure_corres', action='store_true', help="correspondence ablation")
+    parser.add_argument('--ensure_rel', action='store_true', help="relation judgement ablation")
+    parser.add_argument('--emb_fusion', type=str, default="concat", help="way to embedding")
+    
     args = parser.parse_args()
     return args
 
