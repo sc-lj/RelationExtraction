@@ -140,13 +140,14 @@ elif args.model_type == "tplinker":
                                   )
     val_dataset = TPlinkerDataset(
         args.val_file, args, data_maker, tokenizer, is_training=True)
-    valid_dataloader = DataLoader(val_dataset,
+    val_dataloader = DataLoader(val_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True,
                                   num_workers=6,
                                   drop_last=False,
                                   collate_fn=data_maker.generate_batch,
                                   )
+    model = TPlinkerPytochLighting(args)
 
 elif args.model_type == "prgc":
     pass

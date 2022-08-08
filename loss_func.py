@@ -758,7 +758,7 @@ class GHMC_Loss(GHM_Loss):
         super(GHMC_Loss, self).__init__(bins, alpha)
 
     def _custom_loss(self, x, target, weight):
-        return torch.sum((torch.nn.NLLLoss(reduce=False)(torch.log(x),target)).mul(weight.to(target.device).detach()))/torch.sum(weight.to(device).detach())
+        return torch.sum((nn.NLLLoss(reduce=False)(torch.log(x),target)).mul(weight.to(target.device).detach()))/torch.sum(weight.to(device).detach())
 
     def _custom_loss_grad(self, x, target):
         x=x.cpu().detach()
