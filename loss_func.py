@@ -669,7 +669,7 @@ class GHM(nn.Module):
 
     def ghm(self, gradient, bins=10, beta=0.9):
         '''
-        gradient_norm: gradient_norms of all examples in this batch; (batch_size, shaking_seq_len)
+        gradient_norm: gradient_norms of all examples in this batch; (batch_size, label)
         >> ghm = GHM()
         >> import torch.nn.functional as F
         >> loss = F.cross_entropy(inputs,targets)
