@@ -13,7 +13,7 @@ import os
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
     parser.add_argument('--model_type', default="tplinker",
-                        type=str, help='specify max sample triples',choices=['tdeer',"tplinker"])
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -79,21 +79,30 @@ def parser_args():
     parser.add_argument('--separate_char_by_white', default=False, type=bool,
                         help='e.g. "$%sdkn839," -> "$% sdkn839," , will make original char spans invalid')
     parser.add_argument('--add_char_span', default=True, type=bool,
-                        help='set add_char_span to false if it already exists')   
-    parser.add_argument('--ignore_subword', default=True,type=bool,help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')
-    parser.add_argument('--check_tok_span', default=True,type=bool,help="check whether there is any error with token spans, if there is, print the unmatch info")
-    parser.add_argument('--ent2id_path', default="./data/data/NYT/ent2id.json",type=str,help="预处理的实体标签的保存路径")  
+                        help='set add_char_span to false if it already exists')
+    parser.add_argument('--ignore_subword', default=True, type=bool,
+                        help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')
+    parser.add_argument('--check_tok_span', default=True, type=bool,
+                        help="check whether there is any error with token spans, if there is, print the unmatch info")
+    parser.add_argument(
+        '--ent2id_path', default="./data/data/NYT/ent2id.json", type=str, help="预处理的实体标签的保存路径")
     parser.add_argument('--tok_pair_sample_rate', default=1,)
-    
-    # for PRGC model 
-    parser.add_argument('--corres_threshold', type=float, default=0.5, help="threshold of global correspondence")
-    parser.add_argument('--rel_threshold', type=float, default=0.5, help="threshold of relation judgement")
-    parser.add_argument('--ensure_corres', action='store_true', help="correspondence ablation")
-    parser.add_argument('--ensure_rel', action='store_true', help="relation judgement ablation")
-    parser.add_argument('--emb_fusion', type=str, default="concat", help="way to embedding")
-    
+
+    # for PRGC model
+    parser.add_argument('--corres_threshold', type=float,
+                        default=0.5, help="threshold of global correspondence")
+    parser.add_argument('--rel_threshold', type=float,
+                        default=0.5, help="threshold of relation judgement")
+    parser.add_argument('--ensure_corres', action='store_true',
+                        help="correspondence ablation")
+    parser.add_argument('--ensure_rel', action='store_true',
+                        help="relation judgement ablation")
+    parser.add_argument('--emb_fusion', type=str,
+                        default="concat", help="way to embedding")
+
     args = parser.parse_args()
     return args
+
 
 def main():
     args = parser_args()
@@ -101,7 +110,7 @@ def main():
         from TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
         train_dataset = TDEERDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
-                                    batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
         val_dataset = TDEERDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
@@ -112,34 +121,40 @@ def main():
 
     elif args.model_type == "tplinker":
         from TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
-        from tplinker_utils import HandshakingTaggingScheme, DataMaker4Bert,TplinkerDataProcess
+        from tplinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
         from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
-        
+
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=False)
-        get_tok2char_span_map = lambda text: tokenizer.encode_plus(text, return_offsets_mapping = True, add_special_tokens = False)["offset_mapping"]
+
+        def get_tok2char_span_map(text): return tokenizer.encode_plus(
+            text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
         # 数据预处理
         data_path = os.path.join(args.data_out_dir, "train.json")
         if not os.path.exists(data_path):
-            TplinkerDataProcess(args,args.train_file,get_tok2char_span_map,is_training=True)
+            TplinkerDataProcess(args, args.train_file,
+                                get_tok2char_span_map, is_training=True)
         data_path = os.path.join(args.data_out_dir, "val.json")
         if not os.path.exists(data_path):
-            TplinkerDataProcess(args,args.val_file,get_tok2char_span_map,is_training=False)
-        
+            TplinkerDataProcess(args, args.val_file,
+                                get_tok2char_span_map, is_training=False)
+
         handshaking_tagger = HandshakingTaggingScheme(args)
         data_maker = DataMaker4Bert(tokenizer, handshaking_tagger)
-        
-        train_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=True)
-        train_dataloader = DataLoader(train_dataset,batch_size=args.batch_size,shuffle=True,num_workers=6,drop_last=False,
-                                        collate_fn=data_maker.generate_batch)
-        val_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=False)
-        val_dataloader = DataLoader(val_dataset,batch_size=args.batch_size,collate_fn=data_maker.generate_batch)
-        
-        model = TPlinkerPytochLighting(args,handshaking_tagger)
+
+        train_dataset = TPlinkerDataset(
+            args, data_maker, tokenizer, is_training=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=6, drop_last=False,
+                                      collate_fn=data_maker.generate_batch)
+        val_dataset = TPlinkerDataset(
+            args, data_maker, tokenizer, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, batch_size=args.batch_size, collate_fn=data_maker.generate_batch)
+
+        model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
         pass
-
 
     checkpoint_callback = ModelCheckpoint(
         save_top_k=8,
@@ -183,4 +198,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
