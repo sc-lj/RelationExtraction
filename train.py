@@ -2,7 +2,6 @@ import argparse
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from pytorch_lightning.plugins import DDPPlugin
-from sympy import true
 from EMA import EMACallBack
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
