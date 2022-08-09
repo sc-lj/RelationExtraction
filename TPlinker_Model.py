@@ -344,7 +344,8 @@ class TPlinkerPytochLighting(pl.LightningModule):
         self.tag_size = handshaking_tagger.get_tag_size()
         self.model = TPLinkerPlusBert(args.pretrain_path, self.tag_size,
                                       args.shaking_type, args.inner_enc_type, args.tok_pair_sample_rate)
-
+        self.step = -1
+        
     def training_step(self, batch, idx):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
         pred_small_shaking_outputs, sampled_tok_pair_indices = self.model(
@@ -367,7 +368,9 @@ class TPlinkerPytochLighting(pl.LightningModule):
         pred_shaking_tag = (pred_shaking_outputs > 0.).long()
         sample_acc = self.metrics.get_sample_accuracy(pred_shaking_tag,
                                                       batch_shaking_tag)
-
+        if self.step <= 0:
+            self.step += 1
+            sample_list = sample_list[:1]
         cpg_dict = self.metrics.get_cpg(sample_list,
                                         tok2char_span_list,
                                         pred_shaking_tag,

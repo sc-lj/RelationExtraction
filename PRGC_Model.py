@@ -60,7 +60,7 @@ class PRGC(BertPreTrainedModel):
     def __init__(self, config, params):
         super().__init__(config)
         self.seq_tag_size = params.seq_tag_size
-        self.rel_num = params.rel_num
+        self.rel_num = params.relation_number
         self.corres_threshold, self.rel_threshold = 0.5,0.5
         self.emb_fusion = params.emb_fusion
         # pretrain model
@@ -72,8 +72,8 @@ class PRGC(BertPreTrainedModel):
         # global correspondence
         self.global_corres = MultiNonLinearClassifier(config.hidden_size * 2, 1, params.drop_prob)
         # relation judgement
-        self.rel_judgement = MultiNonLinearClassifier(config.hidden_size, params.rel_num, params.drop_prob)
-        self.rel_embedding = nn.Embedding(params.rel_num, config.hidden_size)
+        self.rel_judgement = MultiNonLinearClassifier(config.hidden_size, self.rel_num, params.drop_prob)
+        self.rel_embedding = nn.Embedding(self.rel_num, config.hidden_size)
 
         self.init_weights()
 
@@ -186,23 +186,23 @@ class PRGC(BertPreTrainedModel):
             output_sub, output_obj = self.sequence_tagging_sum(decode_input)
         return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask
 
+
 class PRGCPytochLighting(pl.LightningModule):
     def __init__(self,args) -> None:
         super().__init__()
+        self.seq_tag_size = len(Label2IdxSub)
+        args.seq_tag_size = self.seq_tag_size 
         self.model = PRGC.from_pretraind(args.pretrain_path,args)
-        self.ensure_corres, self.ensure_rel = args.ensure_corres, args.ensure_rel
-        self.emb_fusion = args.emb_fusion
         self.corres_threshold = 0.5
-    
+        
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
-    
     
     def training_step(self, batches,batch_idx):
         input_ids, attention_mask, seq_tags, relation, corres_tags, rel_tags = batches
         bs = input_ids.shape[0]
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,xi= self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
+        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
         # calculate loss
         pos_attention_mask = pos_attention_mask.view(-1)
         # sequence label loss
@@ -214,20 +214,19 @@ class PRGCPytochLighting(pl.LightningModule):
         loss_seq = (loss_seq_sub + loss_seq_obj) / 2
         # init
         loss_matrix, loss_rel = torch.tensor(0), torch.tensor(0)
-        if self.ensure_corres:
-            corres_pred = corres_pred.view(bs, -1)
-            corres_mask = corres_mask.view(bs, -1)
-            corres_tags = corres_tags.view(bs, -1)
-            loss_func = nn.BCEWithLogitsLoss(reduction='none')
-            loss_matrix = (loss_func(corres_pred,
-                                        corres_tags.float()) * corres_mask).sum() / corres_mask.sum()
+        corres_pred = corres_pred.view(bs, -1)
+        corres_mask = corres_mask.view(bs, -1)
+        corres_tags = corres_tags.view(bs, -1)
+        loss_func = nn.BCEWithLogitsLoss(reduction='none')
+        loss_matrix = (loss_func(corres_pred,
+                                    corres_tags.float()) * corres_mask).sum() / corres_mask.sum()
 
-        if self.ensure_rel:
-            loss_func = nn.BCEWithLogitsLoss(reduction='mean')
-            loss_rel = loss_func(rel_pred, rel_tags.float())
+        loss_func = nn.BCEWithLogitsLoss(reduction='mean')
+        loss_rel = loss_func(rel_pred, rel_tags.float())
 
         loss = loss_seq + loss_matrix + loss_rel
-        
+        return loss
+    
     def validation_step(self,batches,batch_idx):
         input_ids, attention_mask, triples, input_tokens = batches
         # compute model output and loss
@@ -354,10 +353,9 @@ class PRGCDataset(Dataset):
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
         self.max_sample_triples = args.max_sample_triples
-        self.datas = []
         with open(filename,'r') as f:
             lines = json.load(f)
-        
+        self.datas = self.preprocess(lines)
     
     def preprocess(self,lines):
         examples = []
@@ -515,7 +513,12 @@ class PRGCDataset(Dataset):
             obj_head = find_head_idx(source=text_tokens, target=obj)
         return sub_head, obj_head, sub, obj
 
+    def __len__(self):
+        return len(self.datas)
 
+    def __getitem__(self, index):
+        data = self.datas[index]
+        return data
 
 
 class InputFeatures(object):
@@ -524,16 +527,7 @@ class InputFeatures(object):
         a single set of features of data
     """
 
-    def __init__(self,
-                 input_tokens,
-                 input_ids,
-                 attention_mask,
-                 seq_tag=None,
-                 corres_tag=None,
-                 relation=None,
-                 triples=None,
-                 rel_tag=None
-                 ):
+    def __init__(self,input_tokens,input_ids,attention_mask,seq_tag=None,corres_tag=None,relation=None,triples=None,rel_tag=None):
         self.input_tokens = input_tokens
         self.input_ids = input_ids
         self.attention_mask = attention_mask
@@ -544,14 +538,12 @@ class InputFeatures(object):
         self.rel_tag = rel_tag
 
 
-
 def find_head_idx(source, target):
     target_len = len(target)
     for i in range(len(source)):
         if source[i: i + target_len] == target:
             return i
     return -1
-
 
 
 def collate_fn_train(features):
@@ -585,4 +577,6 @@ def collate_fn_test(features):
     tensors = [input_ids, attention_mask, triples, input_tokens]
     return tensors
     
+ 
+ 
     

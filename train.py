@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import json
 import os
-
+from utils import statistics_text_length
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
@@ -41,9 +41,9 @@ def parser_args():
                         help='specify negative sample num')
 
     # for TPlinker Model
-    parser.add_argument('--shaking_type', default="cat",
+    parser.add_argument('--shaking_type', default="cat",choices=['cat',"cat_plus","cln","cln_plus"],
                         type=str, help='specify max sample triples')
-    parser.add_argument('--inner_enc_type', default="lstm", type=str,
+    parser.add_argument('--inner_enc_type', default="lstm", type=str,choices=['mix_pooling',"max_pooling","mean_pooling","lstm"],
                         help='valid only if cat_plus or cln_plus is set. It is the way how to encode inner tokens between each token pairs. If you only want to reproduce the results, just leave it alone.')
     parser.add_argument('--dist_emb_size', default=-1,
                         type=int, help='distance emb, ent_add_dist and rel_add_dist are valid only if dist_emb_size != -1')
@@ -86,16 +86,13 @@ def parser_args():
     parser.add_argument(
         '--ent2id_path', default="./data/data/NYT/ent2id.json", type=str, help="预处理的实体标签的保存路径")
     parser.add_argument('--tok_pair_sample_rate', default=1,)
+    parser.add_argument('--ghm', default=True,type=bool,help="是否使用GHM算法进行损失平滑")
 
     # for PRGC model
     parser.add_argument('--corres_threshold', type=float,
                         default=0.5, help="threshold of global correspondence")
     parser.add_argument('--rel_threshold', type=float,
                         default=0.5, help="threshold of relation judgement")
-    parser.add_argument('--ensure_corres', action='store_true',
-                        help="correspondence ablation")
-    parser.add_argument('--ensure_rel', action='store_true',
-                        help="relation judgement ablation")
     parser.add_argument('--emb_fusion', type=str,
                         default="concat", help="way to embedding")
 
@@ -125,9 +122,10 @@ def main():
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=False)
-
-        def get_tok2char_span_map(text): return tokenizer.encode_plus(
-            text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
+        max_length = statistics_text_length(args.train_file,tokenizer)
+        print("最大文本长度为:",max_length)
+        args.max_seq_len = max_length
+        get_tok2char_span_map = lambda text: tokenizer.encode_plus(text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
         # 数据预处理
         data_path = os.path.join(args.data_out_dir, "train.json")
         if not os.path.exists(data_path):
@@ -153,8 +151,25 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        pass
-
+        from PRGC_Model import PRGCDataset,PRGCPytochLighting,collate_fn_test,collate_fn_train
+        train_dataset = PRGCDataset(args.train_file, args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train,
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        val_dataset = PRGCDataset(args.val_file, args, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
+        relation_number = train_dataset.relation_size
+        max_length = statistics_text_length(args.train_file,tokenizer)
+        print("最大文本长度为:",max_length)
+        args.max_seq_len = max_length
+        relation_number = train_dataset.relation_size
+        args.relation_number = relation_number
+        
+        model = PRGCPytochLighting(args)
+        
+    else:
+        raise ValueError(f"目前不支持 该model type:{args.model_type}")
+    
     checkpoint_callback = ModelCheckpoint(
         save_top_k=8,
         verbose=True,
