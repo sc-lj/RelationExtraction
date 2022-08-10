@@ -243,7 +243,7 @@ class TPLinkerPlusBert(nn.Module):
             start_ind = torch.randint(seg_num, []) * segment_len
             end_ind = min(start_ind + segment_len, shaking_seq_len)
             # sampled_tok_pair_indices: (batch_size, ~segment_len) ~end_ind - start_ind <= segment_len
-            # 该段再原序列的索引
+            # 该段在原序列的索引
             sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[None, :].repeat(shaking_hiddens.size()[0], 1)
             # sampled_tok_pair_indices = torch.randint(shaking_seq_len, (shaking_hiddens.size()[0], segment_len))
             sampled_tok_pair_indices = sampled_tok_pair_indices.to(shaking_hiddens.device)
@@ -259,92 +259,17 @@ class TPLinkerPlusBert(nn.Module):
         return outputs, sampled_tok_pair_indices
 
 
-class TPLinkerPlusBiLSTM(nn.Module):
-    def __init__(self, init_word_embedding_matrix,
-                 emb_dropout_rate,
-                 enc_hidden_size,
-                 dec_hidden_size,
-                 rnn_dropout_rate,
-                 tag_size,
-                 shaking_type,
-                 inner_enc_type,
-                 tok_pair_sample_rate=1
-                 ):
-        super().__init__()
-        self.word_embeds = nn.Embedding.from_pretrained(
-            init_word_embedding_matrix, freeze=False)
-        self.emb_dropout = nn.Dropout(emb_dropout_rate)
-        self.enc_lstm = nn.LSTM(init_word_embedding_matrix.size()[-1],
-                                enc_hidden_size // 2,
-                                num_layers=1,
-                                bidirectional=True,
-                                batch_first=True)
-        self.dec_lstm = nn.LSTM(enc_hidden_size,
-                                dec_hidden_size // 2,
-                                num_layers=1,
-                                bidirectional=True,
-                                batch_first=True)
-        self.rnn_dropout = nn.Dropout(rnn_dropout_rate)
-        self.tok_pair_sample_rate = tok_pair_sample_rate
-
-        shaking_hidden_size = dec_hidden_size
-
-        self.fc = nn.Linear(shaking_hidden_size, tag_size)
-
-        # handshaking kernel
-        self.handshaking_kernel = HandshakingKernel(
-            shaking_hidden_size, shaking_type, inner_enc_type)
-
-    def forward(self, input_ids):
-        # input_ids: (batch_size, seq_len)
-        # embedding: (batch_size, seq_len, emb_dim)
-        embedding = self.word_embeds(input_ids)
-        embedding = self.emb_dropout(embedding)
-        # lstm_outputs: (batch_size, seq_len, enc_hidden_size)
-        lstm_outputs, _ = self.enc_lstm(embedding)
-        lstm_outputs = self.rnn_dropout(lstm_outputs)
-        # lstm_outputs: (batch_size, seq_len, dec_hidden_size)
-        lstm_outputs, _ = self.dec_lstm(lstm_outputs)
-        lstm_outputs = self.rnn_dropout(lstm_outputs)
-
-        seq_len = lstm_outputs.size()[1]
-        # shaking_hiddens: (batch_size, shaking_seq_len, dec_hidden_size)
-        shaking_hiddens = self.handshaking_kernel(lstm_outputs)
-
-        sampled_tok_pair_indices = None
-        if self.training:
-            # randomly sample segments of token pairs
-            shaking_seq_len = shaking_hiddens.size()[1]
-            segment_len = int(shaking_seq_len * self.tok_pair_sample_rate)
-            seg_num = math.ceil(shaking_seq_len // segment_len)
-            start_ind = torch.randint(seg_num, []) * segment_len
-            end_ind = min(start_ind + segment_len, shaking_seq_len)
-            # sampled_tok_pair_indices: (batch_size, ~segment_len) ~end_ind - start_ind <= segment_len
-            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[
-                None, :].repeat(shaking_hiddens.size()[0], 1)
-#             sampled_tok_pair_indices = torch.randint(shaking_hiddens, (shaking_hiddens.size()[0], segment_len))
-            sampled_tok_pair_indices = sampled_tok_pair_indices.to(
-                shaking_hiddens.device)
-
-            # sampled_tok_pair_indices will tell model what token pairs should be fed into fcs
-            # shaking_hiddens: (batch_size, ~segment_len, hidden_size)
-            shaking_hiddens = shaking_hiddens.gather(
-                1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, shaking_hiddens.size()[-1]))
-
-        # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_hiddens, tag_size)
-        outputs = self.fc(shaking_hiddens)
-        return outputs, sampled_tok_pair_indices
-
-
 class TPlinkerPytochLighting(pl.LightningModule):
     def __init__(self, args,handshaking_tagger) -> None:
         super().__init__()
         self.args = args
         self.metrics = MetricsCalculator(handshaking_tagger)
-        self.tag_size = handshaking_tagger.get_tag_size()
+        self.tag_size = handshaking_tagger.get_tag_size() # handshake 构建的标签序列长度
         self.model = TPLinkerPlusBert(args.pretrain_path, self.tag_size,
                                       args.shaking_type, args.inner_enc_type, args.tok_pair_sample_rate)
         self.step = -1
+        self.num_step = args.num_step
+        self.save_hyperparameters(args)
         
     def training_step(self, batch, idx):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
@@ -352,8 +277,7 @@ class TPlinkerPytochLighting(pl.LightningModule):
             batch_input_ids, batch_attention_mask, batch_token_type_ids)
         # 采样段对应的标签
         batch_small_shaking_tag = batch_shaking_tag.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.tag_size))
-        loss = self.loss_func(pred_small_shaking_outputs,
-                              batch_small_shaking_tag)
+        loss = self.loss_func(pred_small_shaking_outputs, batch_small_shaking_tag)
         return loss
 
     def loss_func(self, y_pred, y_true):
@@ -370,7 +294,7 @@ class TPlinkerPytochLighting(pl.LightningModule):
                                                       batch_shaking_tag)
         if self.step <= 0:
             self.step += 1
-            sample_list = sample_list[:1]
+            return sample_acc.item(),{},1
         cpg_dict = self.metrics.get_cpg(sample_list,
                                         tok2char_span_list,
                                         pred_shaking_tag,
@@ -392,6 +316,9 @@ class TPlinkerPytochLighting(pl.LightningModule):
                 for idx, n in enumerate(cpg):
                     total_cpg_dict[k][idx] += cpg[idx]
             number += num
+        if len(total_cpg_dict) == 0:
+            print("total_cpg_dict:",total_cpg_dict)
+            return 
         avg_sample_acc = total_sample_acc / number
         rel_prf = self.metrics.get_prf_scores(
             total_cpg_dict["rel_cpg"][0], total_cpg_dict["rel_cpg"][1], total_cpg_dict["rel_cpg"][2])
@@ -406,6 +333,13 @@ class TPlinkerPytochLighting(pl.LightningModule):
             "val_ent_prec": ent_prf[0],
             "val_ent_recall": ent_prf[1],
             "val_ent_f1": ent_prf[2]}
+        self.log("f1",log_dict["f1"], prog_bar=True)
+        self.log("acc",log_dict["prec"], prog_bar=True)
+        self.log("recall",log_dict["recall"], prog_bar=True)
+        self.log("ent_f1",log_dict["val_ent_f1"], prog_bar=True)
+        self.log("ent_prec",log_dict["val_ent_prec"], prog_bar=True)
+        self.log("ent_rec",log_dict["val_ent_recall"], prog_bar=True)
+        self.log("tag_acc",log_dict["val_shaking_tag_acc"], prog_bar=True)
 
     def configure_optimizers(self):
         """[配置优化参数]
@@ -423,18 +357,22 @@ class TPlinkerPytochLighting(pl.LightningModule):
                 nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0, 'lr':2e-4}
         ]
 
-        optimizer = torch.optim.AdamW(self.parameters(), lr=2e-5)
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
         milestones = list(range(2, 50, 2))
         StepLR = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=milestones, gamma=0.85)
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", verbose = True, patience = 6)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = self.args.decay_steps, gamma = self.args.decay_rate)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, self.num_step * self.args.rewarm_epoch_num, self.args.T_mult)
         # StepLR = WarmupLR(optimizer,25000)
-        optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
+        optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
 
 
 class TPlinkerDataset(Dataset):
-    def __init__(self, args, data_maker, tokenizer, is_training=False):
+    def __init__(self, args, data_maker:DataMaker4Bert, tokenizer, is_training=False):
         super().__init__()
 
         self.is_training = is_training
@@ -458,12 +396,22 @@ class TPlinkerDataset(Dataset):
         with open(data_path, 'r') as f:
             data = json.load(f)
 
-        data = self.split_into_short_samples(
-            data, max_seq_len=self.args.max_seq_len, data_type=self.data_type)
+        # data = self.split_into_short_samples(
+        #     data, max_seq_len=self.args.max_seq_len, data_type=self.data_type)
 
         self.datas = data_maker.get_indexed_data(data, args.max_seq_len)
 
-    def split_into_short_samples(self, sample_list, max_seq_len, sliding_len=50, encoder="BERT", data_type="train"):
+    def split_into_short_samples(self, sample_list, max_seq_len, sliding_len=20, encoder="BERT", data_type="train"):
+        """当max_seq_len小于实际的文本长度时，对实体和样本进行截断。
+        Args:
+            sample_list (_type_): _description_
+            max_seq_len (_type_): _description_
+            sliding_len (int, optional): _description_. Defaults to 20.
+            encoder (str, optional): _description_. Defaults to "BERT".
+            data_type (str, optional): _description_. Defaults to "train".
+        Returns:
+            _type_: _description_
+        """
         new_sample_list = []
         for sample in tqdm(sample_list, desc="Splitting into subtexts"):
             text_id = sample["id"]
@@ -529,23 +477,6 @@ class TPlinkerDataset(Dataset):
                             new_ent["char_span"][1] -= char_level_span[0]
 
                             sub_ent_list.append(new_ent)
-
-                    # event
-                    if "event_list" in sample:
-                        sub_event_list = []
-                        for event in sample["event_list"]:
-                            trigger_tok_span = event["trigger_tok_span"]
-                            if trigger_tok_span[1] > end_ind or trigger_tok_span[0] < start_ind:
-                                continue
-                            new_event = copy.deepcopy(event)
-                            new_arg_list = []
-                            for arg in new_event["argument_list"]:
-                                if arg["tok_span"][0] >= start_ind and arg["tok_span"][1] <= end_ind:
-                                    new_arg_list.append(arg)
-                            new_event["argument_list"] = new_arg_list
-                            sub_event_list.append(new_event)
-                        # maybe empty
-                        new_sample["event_list"] = sub_event_list
 
                     new_sample["entity_list"] = sub_ent_list  # maybe empty
                     new_sample["relation_list"] = sub_rel_list  # maybe empty

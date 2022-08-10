@@ -12,7 +12,7 @@ from utils import statistics_text_length
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
     parser.add_argument('--model_type', default="tplinker",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker"])
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -43,16 +43,11 @@ def parser_args():
     # for TPlinker Model
     parser.add_argument('--shaking_type', default="cat",choices=['cat',"cat_plus","cln","cln_plus"],
                         type=str, help='specify max sample triples')
+    parser.add_argument('--tok_pair_sample_rate', default=1,)
     parser.add_argument('--inner_enc_type', default="lstm", type=str,choices=['mix_pooling',"max_pooling","mean_pooling","lstm"],
                         help='valid only if cat_plus or cln_plus is set. It is the way how to encode inner tokens between each token pairs. If you only want to reproduce the results, just leave it alone.')
-    parser.add_argument('--dist_emb_size', default=-1,
-                        type=int, help='distance emb, ent_add_dist and rel_add_dist are valid only if dist_emb_size != -1')
-    parser.add_argument('--ent_add_dist', default=False, type=bool,
-                        help='')
-    parser.add_argument('--match_pattern', default="only_head_text",
+    parser.add_argument('--match_pattern', default="whole_text",choices=["whole_text"],
                         type=str, help='specify max sample triples')
-    parser.add_argument('--rel_add_dist', default=False,
-                        type=bool, help='specify max sample triples')
     parser.add_argument('--max_seq_len', default=512, type=int,
                         help='specify negative sample num')
     parser.add_argument('--sliding_len', default=20, type=int,
@@ -85,8 +80,11 @@ def parser_args():
                         help="check whether there is any error with token spans, if there is, print the unmatch info")
     parser.add_argument(
         '--ent2id_path', default="./data/data/NYT/ent2id.json", type=str, help="预处理的实体标签的保存路径")
-    parser.add_argument('--tok_pair_sample_rate', default=1,)
-    parser.add_argument('--ghm', default=True,type=bool,help="是否使用GHM算法进行损失平滑")
+    parser.add_argument('--ghm', default=False,type=bool,help="是否使用GHM算法进行损失平滑")
+    parser.add_argument('--decay_rate', default=0.999,type=float,help="StepLR 参数")
+    parser.add_argument('--decay_steps', default=100,type=int,help="StepLR 参数")
+    parser.add_argument('--T_mult', default=1,type=float,help="CosineAnnealingWarmRestarts 参数")
+    parser.add_argument('--rewarm_epoch_num', default=2,type=int,help="CosineAnnealingWarmRestarts 参数")
 
     # for PRGC model
     parser.add_argument('--corres_threshold', type=float,
@@ -121,10 +119,10 @@ def main():
         from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
         tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=False)
+            args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
         max_length = statistics_text_length(args.train_file,tokenizer)
         print("最大文本长度为:",max_length)
-        args.max_seq_len = max_length
+        args.max_seq_len = max_length+2
         get_tok2char_span_map = lambda text: tokenizer.encode_plus(text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
         # 数据预处理
         data_path = os.path.join(args.data_out_dir, "train.json")
@@ -141,13 +139,13 @@ def main():
 
         train_dataset = TPlinkerDataset(
             args, data_maker, tokenizer, is_training=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=6, drop_last=False,
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=6,
                                       collate_fn=data_maker.generate_batch)
         val_dataset = TPlinkerDataset(
             args, data_maker, tokenizer, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, batch_size=args.batch_size, collate_fn=data_maker.generate_batch)
-
+        args.num_step = len(train_dataloader)
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
@@ -191,7 +189,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[0],
+                         gpus=[1],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

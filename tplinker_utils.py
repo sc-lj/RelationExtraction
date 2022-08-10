@@ -407,9 +407,7 @@ class DataMaker4Bert():
             batch_shaking_tag = self.shaking_tagger.spots2shaking_tag4batch(
                 matrix_spots_list)
 
-        return sample_list, \
-            batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, \
-            batch_shaking_tag
+        return sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag
 
 
 class DataMaker4BiLSTM():
@@ -525,8 +523,7 @@ class MetricsCalculator():
         y_true and y_pred have the same shape，elements in y_true are either 0 or 1，
              1 tags positive classes，0 tags negtive classes(means tok-pair does not have this type of link).
         """
-        y_pred = (1 - 2 * y_true) * \
-            y_pred  # -1 -> pos classes, 1 -> neg classes
+        y_pred = (1 - 2 * y_true) * y_pred  # -1 -> pos classes, 1 -> neg classes
         y_pred_neg = y_pred - y_true * 1e12  # mask the pred oudtuts of pos classes
         # mask the pred oudtuts of neg classes
         y_pred_pos = y_pred - (1 - y_true) * 1e12
