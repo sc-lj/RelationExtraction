@@ -260,6 +260,7 @@ class TDEERPytochLighting(pl.LightningModule):
         self.threshold = 0.5
         self.args = args
         self.epoch = 0
+        self.save_hyperparameters(args)
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)

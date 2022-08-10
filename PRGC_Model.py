@@ -194,6 +194,7 @@ class PRGCPytochLighting(pl.LightningModule):
         args.seq_tag_size = self.seq_tag_size 
         self.model = PRGC.from_pretraind(args.pretrain_path,args)
         self.corres_threshold = 0.5
+        self.save_hyperparameters(args)
         
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
