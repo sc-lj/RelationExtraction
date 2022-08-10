@@ -31,8 +31,7 @@ def parser_args():
                         help='specify the epoch size')
     parser.add_argument('--batch_size', default=8, type=int,
                         help='specify the batch size')
-    parser.add_argument('--output_path', default="event_extract",
-                        type=str, help='将每轮的验证结果保存的路径')
+    parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
 
     # For TDEER Model
     parser.add_argument('--max_sample_triples', default=None,
