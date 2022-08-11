@@ -108,6 +108,7 @@ class PRGC(BertPreTrainedModel):
         sequence_output = outputs[0]
         bs, seq_len, h = sequence_output.size()
 
+        # 预测关系
         # (bs, h)
         h_k_avg = self.masked_avgpool(sequence_output, attention_mask)
         # (bs, rel_num)
@@ -129,11 +130,11 @@ class PRGC(BertPreTrainedModel):
         # relation predict and data construction in inference stage
         xi, pred_rels = None, None
         if potential_rels is None:
+            # 使用预测的关系获取关系的embedding信息，也可以使用gold关系获取关系的embedding信息
             # (bs, rel_num)
             rel_pred_onehot = torch.where(torch.sigmoid(rel_pred) > self.rel_threshold,
                                           torch.ones(rel_pred.size(), device=rel_pred.device),
                                           torch.zeros(rel_pred.size(), device=rel_pred.device))
-
             # if potential relation is null
             for idx, sample in enumerate(rel_pred_onehot):
                 if 1 not in sample:
@@ -148,43 +149,43 @@ class PRGC(BertPreTrainedModel):
             xi_dict = Counter(bs_idxs.tolist())
             xi = [xi_dict[idx] for idx in range(bs)]
 
-            # pos_seq_output = []
-            # pos_potential_rel = []
-            # pos_attention_mask = []
-            # for bs_idx, rel_idx in zip(bs_idxs, pred_rels):
-            #     # (seq_len, h)
-            #     pos_seq_output.append(sequence_output[bs_idx])
-            #     pos_attention_mask.append(attention_mask[bs_idx])
-            #     pos_potential_rel.append(rel_idx)
-            # # (sum(x_i), seq_len, h)
-            # sequence_output = torch.stack(pos_seq_output, dim=0)
-            # # (sum(x_i), seq_len)
-            # attention_mask = torch.stack(pos_attention_mask, dim=0)
-            # # (sum(x_i),)
-            # potential_rels = torch.stack(pos_potential_rel, dim=0)
+            pos_seq_output = []
+            pos_potential_rel = []
+            pos_attention_mask = []
+            for bs_idx, rel_idx in zip(bs_idxs, pred_rels):
+                # (seq_len, h)
+                pos_seq_output.append(sequence_output[bs_idx])
+                pos_attention_mask.append(attention_mask[bs_idx])
+                pos_potential_rel.append(rel_idx)
+            # (sum(x_i), seq_len, h)
+            sequence_output = torch.stack(pos_seq_output, dim=0)
+            # (sum(x_i), seq_len)
+            attention_mask = torch.stack(pos_attention_mask, dim=0)
+            # (sum(x_i),)
+            potential_rels = torch.stack(pos_potential_rel, dim=0)
 
-            pos_seq_output = sequence_output[bs_idxs]
-            sequence_output = pos_seq_output
-            pos_attention_mask = attention_mask[bs_idxs]
-            potential_rels = pred_rels
 
+        # 获取关系的embedding信息
         # (bs/sum(x_i), h)
         rel_emb = self.rel_embedding(potential_rels)
 
         # relation embedding vector fusion
         rel_emb = rel_emb.unsqueeze(1).expand(-1, seq_len, h)
         if self.emb_fusion == 'concat':
+            # 将关系的信息与句子的token信息融合在一起
             # (bs/sum(x_i), seq_len, 2*h)
             decode_input = torch.cat([sequence_output, rel_emb], dim=-1)
+            # 分别抽取关系中subject和object字段
             # (bs/sum(x_i), seq_len, tag_size)
             output_sub = self.sequence_tagging_sub(decode_input)
             output_obj = self.sequence_tagging_obj(decode_input)
         elif self.emb_fusion == 'sum':
             # (bs/sum(x_i), seq_len, h)
             decode_input = sequence_output + rel_emb
+            # 采用同一个头抽取关系中subject和object字段
             # (bs/sum(x_i), seq_len, tag_size)
             output_sub, output_obj = self.sequence_tagging_sum(decode_input)
-        return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask
+        return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,xi
 
 
 class PRGCPytochLighting(pl.LightningModule):
@@ -203,7 +204,7 @@ class PRGCPytochLighting(pl.LightningModule):
         input_ids, attention_mask, seq_tags, relation, corres_tags, rel_tags = batches
         bs = input_ids.shape[0]
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
+        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
         # calculate loss
         pos_attention_mask = pos_attention_mask.view(-1)
         # sequence label loss
@@ -214,7 +215,6 @@ class PRGCPytochLighting(pl.LightningModule):
                                     seq_tags[:, 1, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
         loss_seq = (loss_seq_sub + loss_seq_obj) / 2
         # init
-        loss_matrix, loss_rel = torch.tensor(0), torch.tensor(0)
         corres_pred = corres_pred.view(bs, -1)
         corres_mask = corres_mask.view(bs, -1)
         corres_tags = corres_tags.view(bs, -1)
@@ -231,7 +231,7 @@ class PRGCPytochLighting(pl.LightningModule):
     def validation_step(self,batches,batch_idx):
         input_ids, attention_mask, triples, input_tokens = batches
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_preds,_,xi = self.model(input_ids, attention_mask=attention_mask)
+        output_sub, output_obj,corres_mask,rel_preds,_,corres_pred,xi = self.model(input_ids, attention_mask=attention_mask)
         # (sum(x_i), seq_len)
         pred_seq_sub = torch.argmax(torch.softmax(output_sub, dim=-1), dim=-1)
         pred_seq_obj = torch.argmax(torch.softmax(output_obj, dim=-1), dim=-1)
@@ -345,6 +345,7 @@ class InputExample(object):
 class PRGCDataset(Dataset):
     def __init__(self,args,filename,is_training):
         super().__init__()
+        self.args = args
         self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
         self.is_training = is_training
         self.batch_size = args.batch_size
@@ -372,7 +373,7 @@ class PRGCDataset(Dataset):
                 rel2ens[self.rel2id[triple[1]]].append((triple[0], triple[-1]))
             example = InputExample(text=text, en_pair_list=en_pair_list, re_list=re_list, rel2ens=rel2ens)
             examples.append(example)
-        max_text_len = self.args.max_seq_length
+        max_text_len = self.args.max_seq_len
         # multi-process
         with Pool(10) as p:
             convert_func = functools.partial(self.convert, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
@@ -381,7 +382,7 @@ class PRGCDataset(Dataset):
         return list(chain(*features))
     
 
-    def convert(self,example: InputExample, max_text_len: int, tokenizer, rel2idx, ex_params):
+    def convert(self,example: InputExample, max_text_len: int, tokenizer, rel2idx, ensure_rel,num_negs):
         """转换函数 for CarFaultRelation data
         Args:
             example (_type_): 一个样本示例
@@ -442,6 +443,7 @@ class PRGCDataset(Dataset):
                             tags_obj[obj_head] = Label2IdxObj['B-T']
                             tags_obj[obj_head + 1:obj_head +
                                     len(obj)] = (len(obj) - 1) * [Label2IdxObj['I-T']]
+                # 相同关系下的所有subject和object对
                 seq_tag = [tags_sub, tags_obj]
 
                 # sanity check
@@ -457,10 +459,10 @@ class PRGCDataset(Dataset):
                     rel_tag=rel_tag
                 ))
             # relation judgement ablation
-            if not ex_params['ensure_rel']:
+            if not ensure_rel:
                 # negative samples, 采样一些负样本的关系数据集
                 neg_rels = set(rel2idx.values()).difference(set(example.re_list))
-                neg_rels = random.sample(neg_rels, k=ex_params['num_negs'])
+                neg_rels = random.sample(neg_rels, k=num_negs)
                 for neg_rel in neg_rels:
                     # init，针对关系的负样本，只对subject和object的序列全部置为O，其他的沿用正样本的数据
                     seq_tag = max_text_len * [Label2IdxSub['O']]
@@ -527,7 +529,6 @@ class InputFeatures(object):
     Desc:
         a single set of features of data
     """
-
     def __init__(self,input_tokens,input_ids,attention_mask,seq_tag=None,corres_tag=None,relation=None,triples=None,rel_tag=None):
         self.input_tokens = input_tokens
         self.input_ids = input_ids

@@ -11,7 +11,7 @@ from utils import statistics_text_length
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--model_type', default="tplinker",
+    parser.add_argument('--model_type', default="prgc",
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
@@ -41,7 +41,7 @@ def parser_args():
                         help='specify negative sample num')
 
     # for TPlinker Model
-    parser.add_argument('--shaking_type', default="cat",choices=['cat',"cat_plus","cln","cln_plus"],
+    parser.add_argument('--shaking_type', default="cln_plus",choices=['cat',"cat_plus","cln","cln_plus"],
                         type=str, help='specify max sample triples')
     parser.add_argument('--tok_pair_sample_rate', default=1,)
     parser.add_argument('--inner_enc_type', default="lstm", type=str,choices=['mix_pooling',"max_pooling","mean_pooling","lstm"],
@@ -93,6 +93,9 @@ def parser_args():
                         default=0.5, help="threshold of relation judgement")
     parser.add_argument('--emb_fusion', type=str,
                         default="concat", help="way to embedding")
+    parser.add_argument('--ensure_rel', default=True, help="是否需要对关系进行负采样")
+    parser.add_argument('--num_negs', type=int, default=4,
+                    help="当对关系进行负采样时,负采样的个数")
 
     args = parser.parse_args()
     return args
@@ -150,10 +153,10 @@ def main():
 
     elif args.model_type == "prgc":
         from PRGC_Model import PRGCDataset,PRGCPytochLighting,collate_fn_test,collate_fn_train
-        train_dataset = PRGCDataset(args.train_file, args, is_training=True)
+        train_dataset = PRGCDataset( args,args.train_file, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = PRGCDataset(args.val_file, args, is_training=False)
+        val_dataset = PRGCDataset( args,args.val_file, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
         relation_number = train_dataset.relation_size
