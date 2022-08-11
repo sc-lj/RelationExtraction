@@ -207,7 +207,7 @@ def main():
                          amp_backend="apex",
                          # resume_from_checkpoint ="lightning_logs/version_5/checkpoints/epoch=01f1=0.950acc=0.950recall=0.950.ckpt"
                          )
-    trainer.fit(model, train_dataloader=train_dataloader,
+    trainer.fit(model, train_dataloaders=train_dataloader,
                 val_dataloaders=val_dataloader)
 
 
