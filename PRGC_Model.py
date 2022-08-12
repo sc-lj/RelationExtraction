@@ -12,7 +12,7 @@ import functools
 from multiprocessing import Pool
 from itertools import chain
 from PRGC_metric import tag_mapping_corres
-
+from tqdm import tqdm
 
 Label2IdxSub = {"B-H": 1, "I-H": 2, "O": 0}
 Label2IdxObj = {"B-T": 1, "I-T": 2, "O": 0}
@@ -163,7 +163,8 @@ class PRGC(BertPreTrainedModel):
             attention_mask = torch.stack(pos_attention_mask, dim=0)
             # (sum(x_i),)
             potential_rels = torch.stack(pos_potential_rel, dim=0)
-
+        else:
+            pos_attention_mask = attention_mask
 
         # 获取关系的embedding信息
         # (bs/sum(x_i), h)
@@ -185,7 +186,7 @@ class PRGC(BertPreTrainedModel):
             # 采用同一个头抽取关系中subject和object字段
             # (bs/sum(x_i), seq_len, tag_size)
             output_sub, output_obj = self.sequence_tagging_sum(decode_input)
-        return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,xi
+        return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,xi,pred_rels
 
 
 class PRGCPytochLighting(pl.LightningModule):
@@ -193,7 +194,7 @@ class PRGCPytochLighting(pl.LightningModule):
         super().__init__()
         self.seq_tag_size = len(Label2IdxSub)
         args.seq_tag_size = self.seq_tag_size 
-        self.model = PRGC.from_pretraind(args.pretrain_path,args)
+        self.model = PRGC.from_pretrained(args.pretrain_path,args)
         self.corres_threshold = 0.5
         self.save_hyperparameters(args)
         
@@ -204,7 +205,7 @@ class PRGCPytochLighting(pl.LightningModule):
         input_ids, attention_mask, seq_tags, relation, corres_tags, rel_tags = batches
         bs = input_ids.shape[0]
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
+        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,_,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
         # calculate loss
         pos_attention_mask = pos_attention_mask.view(-1)
         # sequence label loss
@@ -231,7 +232,7 @@ class PRGCPytochLighting(pl.LightningModule):
     def validation_step(self,batches,batch_idx):
         input_ids, attention_mask, triples, input_tokens = batches
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_preds,_,corres_pred,xi = self.model(input_ids, attention_mask=attention_mask)
+        output_sub, output_obj,corres_mask,_,_,corres_pred,xi,pred_rels = self.model(input_ids, attention_mask=attention_mask)
         # (sum(x_i), seq_len)
         pred_seq_sub = torch.argmax(torch.softmax(output_sub, dim=-1), dim=-1)
         pred_seq_obj = torch.argmax(torch.softmax(output_obj, dim=-1), dim=-1)
@@ -246,22 +247,24 @@ class PRGCPytochLighting(pl.LightningModule):
         xi = np.array(xi)
         # (sum(s_i),)
         pred_rels = pred_rels.detach().cpu().numpy()
+        pred_corres = pred_corres.detach().cpu().numpy()
+        pred_seqs = pred_seqs.detach().cpu().numpy()
         # decode by per batch
         xi_index = np.cumsum(xi).tolist()
         # (bs+1,)
         xi_index.insert(0, 0)
-        return pred_seqs, pred_corres, xi, rel_preds,triples,input_tokens
+        return pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens
     
     def validation_epoch_end(self, outputs):
         predictions = []
         ground_truths = []
         correct_num, predict_num, gold_num = 0, 0, 0
-        for pred_seqs, pred_corres, xi, pred_rels,triples,input_tokens in outputs:
-            bs = pred_seqs.shape[0]
+        for pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens in outputs:
+            bs = len(xi_index)-1
             for idx in range(bs):
-                pre_triple = tag_mapping_corres(predict_tags=pred_seqs[xi[idx]:xi[idx + 1]],
+                pre_triple = tag_mapping_corres(predict_tags=pred_seqs[xi_index[idx]:xi_index[idx + 1]],
                                                     pre_corres=pred_corres[idx],
-                                                    pre_rels=pred_rels[xi[idx]:xi[idx + 1]],
+                                                    pre_rels=pred_rels[xi_index[idx]:xi_index[idx + 1]],
                                                     label2idx_sub=Label2IdxSub,
                                                     label2idx_obj=Label2IdxObj)
                 gold_triples = self.span2str(triples[idx], input_tokens[idx])
@@ -375,11 +378,17 @@ class PRGCDataset(Dataset):
             examples.append(example)
         max_text_len = self.args.max_seq_len
         # multi-process
-        with Pool(10) as p:
-            convert_func = functools.partial(self.convert, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
+        # with Pool(10) as p:
+        #     convert_func = functools.partial(self.convert, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
+        #                                     ensure_rel=self.args.ensure_rel,num_negs=self.args.num_negs)
+        #     features = p.map(func=convert_func, iterable=examples)
+        # # return list(chain(*features))
+        features = []
+        for example in tqdm(examples,desc="convert example"):
+            feature = self.convert(example,max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
                                             ensure_rel=self.args.ensure_rel,num_negs=self.args.num_negs)
-            features = p.map(func=convert_func, iterable=examples)
-        return list(chain(*features))
+            features.extend(feature)
+        return features
     
 
     def convert(self,example: InputExample, max_text_len: int, tokenizer, rel2idx, ensure_rel,num_negs):
