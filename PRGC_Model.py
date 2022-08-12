@@ -276,7 +276,13 @@ class PRGCPytochLighting(pl.LightningModule):
                 predict_num += len(set(pre_triples))
                 gold_num += len(set(gold_triples))
         metrics = self.get_metrics(correct_num, predict_num, gold_num)
-    
+        self.log("f1",metrics["f1"], prog_bar=True)
+        self.log("acc",metrics["precision"], prog_bar=True)
+        self.log("recall",metrics["recall"], prog_bar=True)
+        self.log("gold_num",metrics["gold_num"], prog_bar=True)
+        self.log("predict_num",metrics["predict_num"], prog_bar=True)
+        self.log("correct_num",metrics["correct_num"], prog_bar=True)
+
     def get_metrics(self,correct_num, predict_num, gold_num):
         p = correct_num / predict_num if predict_num > 0 else 0
         r = correct_num / gold_num if gold_num > 0 else 0
