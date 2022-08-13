@@ -125,3 +125,5 @@ def tag_mapping_corres(predict_tags, pre_corres, pre_rels=None, label2idx_sub=No
                 triple = list(h_t) + [idx]
             pre_triples.append(tuple(triple))
     return pre_triples
+
+
