@@ -19,6 +19,62 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 import json
+from tqdm import tqdm
+
+
+class DecoderLayer(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.attention = BertAttention(config)
+        self.crossattention = BertAttention(config)
+        self.intermediate = BertIntermediate(config)
+        self.output = BertOutput(config)
+
+    def forward(self,hidden_states,encoder_hidden_states,encoder_attention_mask):
+        """关系的解码器
+        Args:
+            hidden_states (_type_): 关系隐层,初始为关系的映射,后面都是上一层decoder输出, [batch_size,num_generated_triples,hidden_size]
+            encoder_hidden_states (_type_): 输入token的表征,[batch_size,seq_len,hidden_size]
+            encoder_attention_mask (_type_): attention mask,[batch_size,seq_len]
+        Raises:
+            ValueError: _description_
+        Returns:
+            _type_: _description_
+        """
+        self_attention_outputs = self.attention(hidden_states)
+        attention_output = self_attention_outputs[0]
+        # add self attentions if we output attention weights
+        outputs = self_attention_outputs[1:]
+
+        encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
+        encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
+        if encoder_attention_mask.dim() == 3:
+            encoder_extended_attention_mask = encoder_attention_mask[:, None, :, :]
+        elif encoder_attention_mask.dim() == 2:
+            encoder_extended_attention_mask = encoder_attention_mask[:, None, None, :]
+        else:
+            raise ValueError(
+                "Wrong shape for encoder_hidden_shape (shape {}) or encoder_attention_mask (shape {})".format(
+                    encoder_hidden_shape, encoder_attention_mask.shape
+                )
+            )
+        encoder_extended_attention_mask = (
+            1.0 - encoder_extended_attention_mask) * -10000.0
+        # attention_output 作为self attention中query，encoder_hidden_states作为self attention中key，value
+        # [batch_size,num_generated_triples,hidden_size]
+        cross_attention_outputs = self.crossattention(
+            hidden_states=attention_output, encoder_hidden_states=encoder_hidden_states,  encoder_attention_mask=encoder_extended_attention_mask
+        )
+        attention_output = cross_attention_outputs[0]
+        # add cross attentions if we output attention weights
+        outputs = outputs + cross_attention_outputs[1:]
+        # [batch_size,num_generated_triples,intermediate_size]
+        intermediate_output = self.intermediate(attention_output)
+        # [batch_size,num_generated_triples,intermediate_size] -> # [batch_size,num_generated_triples,hidden_size]
+        layer_output = self.output(intermediate_output, attention_output)
+        outputs = (layer_output,) + outputs
+        return outputs
+
 
 class SetDecoder(nn.Module):
     def __init__(self, config, num_generated_triples, num_layers, num_classes, return_intermediate=False):
@@ -30,11 +86,14 @@ class SetDecoder(nn.Module):
         self.LayerNorm = nn.LayerNorm(
             config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        # 对模型产生的每一个triple，采用query的方式(即生成query的embedding)，并与文本token的表征的进行交互
         self.query_embed = nn.Embedding(
             num_generated_triples, config.hidden_size)
+        # 预测关系，加上了一个“无关系”的标签
         self.decoder2class = nn.Linear(config.hidden_size, num_classes + 1)
         self.decoder2span = nn.Linear(config.hidden_size, 4)
 
+        # 预测subject，object的start，end 4个部分的的分类头
         self.head_start_metric_1 = nn.Linear(
             config.hidden_size, config.hidden_size)
         self.head_end_metric_1 = nn.Linear(
@@ -68,9 +127,12 @@ class SetDecoder(nn.Module):
 
     def forward(self, encoder_hidden_states, encoder_attention_mask):
         bsz = encoder_hidden_states.size()[0]
+        # [batch_size,num_generated_triples,hidden_size]
         hidden_states = self.query_embed.weight.unsqueeze(0).repeat(bsz, 1, 1)
+        # [batch_size,num_generated_triples,hidden_size]
         hidden_states = self.dropout(self.LayerNorm(hidden_states))
         all_hidden_states = ()
+        # query embedding 与文本token的交互
         for i, layer_module in enumerate(self.layers):
             if self.return_intermediate:
                 all_hidden_states = all_hidden_states + (hidden_states,)
@@ -81,9 +143,11 @@ class SetDecoder(nn.Module):
 
         class_logits = self.decoder2class(hidden_states)
 
+        # 
         head_start_logits = self.head_start_metric_3(torch.tanh(
             self.head_start_metric_1(hidden_states).unsqueeze(2) + self.head_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
+        
         head_end_logits = self.head_end_metric_3(torch.tanh(
             self.head_end_metric_1(hidden_states).unsqueeze(2) + self.head_end_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
@@ -91,57 +155,12 @@ class SetDecoder(nn.Module):
         tail_start_logits = self.tail_start_metric_3(torch.tanh(
             self.tail_start_metric_1(hidden_states).unsqueeze(2) + self.tail_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
+        
         tail_end_logits = self.tail_end_metric_3(torch.tanh(
             self.tail_end_metric_1(hidden_states).unsqueeze(2) + self.tail_end_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
 
         return class_logits, head_start_logits, head_end_logits, tail_start_logits, tail_end_logits
-
-
-class DecoderLayer(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.attention = BertAttention(config)
-        self.crossattention = BertAttention(config)
-        self.intermediate = BertIntermediate(config)
-        self.output = BertOutput(config)
-
-    def forward(
-        self,
-        hidden_states,
-        encoder_hidden_states,
-        encoder_attention_mask
-    ):
-        self_attention_outputs = self.attention(hidden_states)
-        attention_output = self_attention_outputs[0]
-        # add self attentions if we output attention weights
-        outputs = self_attention_outputs[1:]
-
-        encoder_batch_size, encoder_sequence_length, _ = encoder_hidden_states.size()
-        encoder_hidden_shape = (encoder_batch_size, encoder_sequence_length)
-        if encoder_attention_mask.dim() == 3:
-            encoder_extended_attention_mask = encoder_attention_mask[:, None, :, :]
-        elif encoder_attention_mask.dim() == 2:
-            encoder_extended_attention_mask = encoder_attention_mask[:, None, None, :]
-        else:
-            raise ValueError(
-                "Wrong shape for encoder_hidden_shape (shape {}) or encoder_attention_mask (shape {})".format(
-                    encoder_hidden_shape, encoder_attention_mask.shape
-                )
-            )
-        encoder_extended_attention_mask = (
-            1.0 - encoder_extended_attention_mask) * -10000.0
-        cross_attention_outputs = self.crossattention(
-            hidden_states=attention_output, encoder_hidden_states=encoder_hidden_states,  encoder_attention_mask=encoder_extended_attention_mask
-        )
-        attention_output = cross_attention_outputs[0]
-        # add cross attentions if we output attention weights
-        outputs = outputs + cross_attention_outputs[1:]
-
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        outputs = (layer_output,) + outputs
-        return outputs
 
 
 class HungarianMatcher(nn.Module):
@@ -359,8 +378,8 @@ class SeqEncoder(nn.Module):
         self.config = self.bert.config
 
     def forward(self, input_ids, attention_mask):
-        last_hidden_state, pooler_output = self.bert(
-            input_ids, attention_mask=attention_mask)
+        outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=None)
+        last_hidden_state, pooler_output  = outputs[0],outputs[1]
         return last_hidden_state, pooler_output
 
 
@@ -372,6 +391,7 @@ class SetPred4RE(nn.Module):
         self.encoder = SeqEncoder(args)
         config = self.encoder.config
         self.num_classes = num_classes
+        # 关系解码器
         self.decoder = SetDecoder(config, args.num_generated_triples,
                                   args.num_decoder_layers, num_classes, return_intermediate=False)
 
@@ -403,10 +423,10 @@ class Span4REPytochLighting(pl.LightningModule):
         self.num_classes = args.relation_number
         self.model = SetPred4RE(args,self.num_classes)
         self.criterion = SetCriterion(self.num_classes,  loss_weight=self.get_loss_weight(
-            args), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
+            args.loss_weight), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
     
-    def get_loss_weight(self,args):
-        return {"relation": args.rel_loss_weight, "head_entity": args.head_ent_loss_weight, "tail_entity": args.tail_ent_loss_weight}
+    def get_loss_weight(self,loss_weight):
+        return {"relation": loss_weight[0], "head_entity": loss_weight[1], "tail_entity": loss_weight[2]}
 
 
     def forward(self, *args, **kwargs):
@@ -482,9 +502,29 @@ class Span4REPytochLighting(pl.LightningModule):
 
         return {"prec": precision, "recall": recall, "f1": f_measure}
 
+    def configure_optimizers(self):
+        """[配置优化参数]
+        """
+        param_optimizer = list(self.named_parameters())
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8,'lr':2e-5},
+                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0,'lr':2e-5},
+                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8,'lr':2e-4},
+                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
+                ]
+    
+        optimizer = torch.optim.AdamW(self.parameters(), lr=2e-5)
+        # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+        milestones = list(range(2,50,2))
+        StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
+        # StepLR = WarmupLR(optimizer,25000)
+        optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
+        return optim_dict
+    
 
 class Span4REDataset(Dataset):
-    def __init__(self,args,filename,is_training) -> None:
+    def __init__(self,filename,args,is_training) -> None:
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
         self.is_training = is_training
@@ -498,10 +538,9 @@ class Span4REDataset(Dataset):
             lines = json.load(f)
         self.datas = self.preprocess(lines)
         
-        
     def preprocess(self,lines):
         samples = []
-        for i in range(len(lines)):
+        for i in tqdm(range(len(lines)),desc="prepare data"):
             token_sent = [self.tokenizer.cls_token] + self.tokenizer.tokenize(self.remove_accents(lines[i]["text"])) + [self.tokenizer.sep_token]
             triples = lines[i]["triple_list"]
             target = {"relation": [], "head_start_index": [], "head_end_index": [], "tail_start_index": [], "tail_end_index": []}
@@ -510,7 +549,7 @@ class Span4REDataset(Dataset):
                 tail_entity = self.remove_accents(triple[2])
                 head_token = self.tokenizer.tokenize(head_entity)
                 tail_token = self.tokenizer.tokenize(tail_entity)
-                relation_id = self.rel2id[triple[0]]
+                relation_id = self.rel2id[triple[1]]
                 head_start_index, head_end_index = self.list_index(head_token, token_sent)
                 assert head_end_index >= head_start_index
                 tail_start_index, tail_end_index = self.list_index(tail_token, token_sent)
@@ -525,21 +564,29 @@ class Span4REDataset(Dataset):
         return samples
     
     def __len__(self,):
-        return self.datas
+        return len(self.datas)
     
     def __getitem__(self, index):
         return self.datas[index]
 
-    def list_index(self,list1: list, list2: list) -> list:
-        start = [i for i, x in enumerate(list2) if x == list1[0]]
-        end = [i for i, x in enumerate(list2) if x == list1[-1]]
+    def list_index(self,span_token_list: list, token_list: list) -> list:
+        """
+        Args:
+            span_token_list (list): subject,object token的列表
+            token_list (list): 文本的token列表
+        Returns:
+            list: _description_
+        """
+        start = [i for i, x in enumerate(token_list) if x == span_token_list[0]]
+        end = [i for i, x in enumerate(token_list) if x == span_token_list[-1]]
         if len(start) == 1 and len(end) == 1:
             return start[0], end[0]
         else:
+            # 如果找到多个与subject或者object token匹配的字段，返回第一个
             for i in start:
                 for j in end:
                     if i <= j:
-                        if list2[i:j+1] == list1:
+                        if token_list[i:j+1] == span_token_list:
                             index = (i, j)
                             break
             return index[0], index[1]

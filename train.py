@@ -12,7 +12,7 @@ from utils import statistics_text_length
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--model_type', default="prgc",
+    parser.add_argument('--model_type', default="span4re",
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc","span4re"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
@@ -97,6 +97,19 @@ def parser_args():
     parser.add_argument('--num_negs', type=int, default=4,
                     help="当对关系进行负采样时,负采样的个数")
     parser.add_argument('--drop_prob', type=float, default=0.2,help="对各个预测模块采用的drop out率")
+    
+    # for span4re model argument
+    parser.add_argument('--loss_weight', type=list,
+                        default=[1,2,2], help="关系,subject和object的损失权重")
+    parser.add_argument('--na_rel_coef', type=float,
+                        default=1, help="无关关系的权重系数")
+    parser.add_argument('--matcher',type=str, default="avg", choices=['avg', 'min'])
+    parser.add_argument('--num_decoder_layers',type=int, default=3, help="decoder 的层数")
+    parser.add_argument('--num_generated_triples', type=int, default=10,
+                    help="解码时，最大生成triple的数量")
+    parser.add_argument('--n_best_size', type=int, default=5,help="解码时,选择前多少个triple作为最终的triple")
+    
+    
     args = parser.parse_args()
     return args
 
@@ -171,6 +184,10 @@ def main():
     
     elif args.model_type == "span4re":
         from SPN4RE_Model import Span4REDataset,Span4REPytochLighting,collate_fn
+        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
+        max_length = statistics_text_length(args.train_file,tokenizer)
+        print("最大文本长度为:",max_length)
+        args.max_span_length = max_length
         train_dataset = Span4REDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
