@@ -8,11 +8,16 @@ TDEER is an efficient model for joint extraction of entities and relations. Unli
 
 ![overview](docs/TDEER-Overview.png)
 
+参数量：113 M
+
+
 # PRGC 🦌
 
 Official Code For [PRGC: Potential Relation and Global Correspondence Based Joint Relational Triple Extraction](https://arxiv.org/abs/2106.09895) 
 
 ![overview](docs/PRGC-Overview.png)
+
+参数量：113 M
 
 
 # TPLinker 🦌
@@ -22,6 +27,8 @@ Official Code For [TPLinker: Single-stage Joint Extraction of Entities and Relat
 
 ![overview](docs/TPLinker-Overview.png)
 
+参数量：116 M
+
 
 # SPN4RE 🦌
 
@@ -30,4 +37,4 @@ Official Code For [SPAN4RE:Joint Entity and Relation Extraction with Set Predict
 
 ![overview](docs/SPN4RE-Overview.png)
 
-
+参数量：142 M
