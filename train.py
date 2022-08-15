@@ -111,6 +111,7 @@ def main():
         val_dataset = TDEERDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
+        
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.steps = len(train_dataset)
@@ -163,12 +164,11 @@ def main():
         val_dataset = PRGCDataset( args,args.val_file, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
-        relation_number = train_dataset.relation_size
-
+        
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
-        
         model = PRGCPytochLighting(args)
+    
     elif args.model_type == "span4re":
         from SPN4RE_Model import Span4REDataset,Span4REPytochLighting,collate_fn
         train_dataset = Span4REDataset(args.train_file, args, is_training=True)
@@ -177,6 +177,7 @@ def main():
         val_dataset = Span4REDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+        
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.steps = len(train_dataset)
