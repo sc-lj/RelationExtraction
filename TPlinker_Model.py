@@ -374,10 +374,7 @@ class TPlinkerPytochLighting(pl.LightningModule):
 class TPlinkerDataset(Dataset):
     def __init__(self, args, data_maker:DataMaker4Bert, tokenizer, is_training=False):
         super().__init__()
-
         self.is_training = is_training
-        self.batch_size = args.batch_size
-
         self.datas = []
         self._tokenize = tokenizer.tokenize
         self.get_tok2char_span_map = lambda text: tokenizer.encode_plus(

@@ -14,8 +14,11 @@ import torch.nn as nn
 import torch
 from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
 import torch.nn.functional as F
-from SPN4RE_utils import generate_triple
-
+from SPN4RE_utils import generate_triple,formulate_gold,Alphabet
+import pytorch_lightning as pl
+from torch.utils.data import DataLoader, Dataset
+from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
+import json
 
 class SetDecoder(nn.Module):
     def __init__(self, config, num_generated_triples, num_layers, num_classes, return_intermediate=False):
@@ -205,7 +208,7 @@ class HungarianMatcher(nn.Module):
 
 
 class SetCriterion(nn.Module):
-    """ This class computes the loss for Set_RE.
+    """ 计算损失函数
     The process happens in two steps:
         1) we compute hungarian assignment between ground truth and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class, subject position and object position)
@@ -348,11 +351,11 @@ class SeqEncoder(nn.Module):
     def __init__(self, args):
         super(SeqEncoder, self).__init__()
         self.args = args
-        self.bert = BertModel.from_pretrained(args.bert_directory)
-        if args.fix_bert_embeddings:
-            self.bert.embeddings.word_embeddings.weight.requires_grad = False
-            self.bert.embeddings.position_embeddings.weight.requires_grad = False
-            self.bert.embeddings.token_type_embeddings.weight.requires_grad = False
+        self.bert = BertModel.from_pretrained(args.pretrain_path)
+        # if args.fix_bert_embeddings:
+        #     self.bert.embeddings.word_embeddings.weight.requires_grad = False
+        #     self.bert.embeddings.position_embeddings.weight.requires_grad = False
+        #     self.bert.embeddings.token_type_embeddings.weight.requires_grad = False
         self.config = self.bert.config
 
     def forward(self, input_ids, attention_mask):
@@ -362,19 +365,17 @@ class SeqEncoder(nn.Module):
 
 
 class SetPred4RE(nn.Module):
-
     def __init__(self, args, num_classes):
         super(SetPred4RE, self).__init__()
         self.args = args
+        # 文本编码
         self.encoder = SeqEncoder(args)
         config = self.encoder.config
         self.num_classes = num_classes
         self.decoder = SetDecoder(config, args.num_generated_triples,
                                   args.num_decoder_layers, num_classes, return_intermediate=False)
-        self.criterion = SetCriterion(num_classes,  loss_weight=self.get_loss_weight(
-            args), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
 
-    def forward(self, input_ids, attention_mask, targets=None):
+    def forward(self, input_ids, attention_mask):
         last_hidden_state, pooler_output = self.encoder(
             input_ids, attention_mask)
         class_logits, head_start_logits, head_end_logits, tail_start_logits, tail_end_logits = self.decoder(
@@ -391,46 +392,183 @@ class SetPred4RE(nn.Module):
             (1 - attention_mask.unsqueeze(1)).bool(), -10000.0)
         outputs = {'pred_rel_logits': class_logits, 'head_start_logits': head_start_logits,
                    'head_end_logits': head_end_logits, 'tail_start_logits': tail_start_logits, 'tail_end_logits': tail_end_logits}
-        if targets is not None:
-            loss = self.criterion(outputs, targets)
-            return loss, outputs
-        else:
-            return outputs
+        return outputs
 
-    def gen_triples(self, input_ids, attention_mask, info):
-        with torch.no_grad():
-            outputs = self.forward(input_ids, attention_mask)
-            # print(outputs)
-            pred_triple = generate_triple(
-                outputs, info, self.args, self.num_classes)
-            # print(pred_triple)
-        return pred_triple
 
-    def batchify(self, batch_list):
-        batch_size = len(batch_list)
-        sent_idx = [ele[0] for ele in batch_list]
-        sent_ids = [ele[1] for ele in batch_list]
-        targets = [ele[2] for ele in batch_list]
-        sent_lens = list(map(len, sent_ids))
-        max_sent_len = max(sent_lens)
-        input_ids = torch.zeros(
-            (batch_size, max_sent_len), requires_grad=False).long()
-        attention_mask = torch.zeros(
-            (batch_size, max_sent_len), requires_grad=False, dtype=torch.float32)
-        for idx, (seq, seqlen) in enumerate(zip(sent_ids, sent_lens)):
-            input_ids[idx, :seqlen] = torch.LongTensor(seq)
-            attention_mask[idx, :seqlen] = torch.FloatTensor([1] * seqlen)
-        if self.args.use_gpu:
-            input_ids = input_ids.cuda()
-            attention_mask = attention_mask.cuda()
-            targets = [{k: torch.tensor(v, dtype=torch.long, requires_grad=False).cuda(
-            ) for k, v in t.items()} for t in targets]
-        else:
-            targets = [{k: torch.tensor(
-                v, dtype=torch.long, requires_grad=False) for k, v in t.items()} for t in targets]
-        info = {"seq_len": sent_lens, "sent_idx": sent_idx}
-        return input_ids, attention_mask, targets, info
-
-    @staticmethod
-    def get_loss_weight(args):
+class Span4REPytochLighting(pl.LightningModule):
+    def __init__(self,args) -> None:
+        super().__init__()
+        self.args = args
+        self.save_hyperparameters(args)
+        self.num_classes = args.num_classes
+        self.model = SetPred4RE(args,self.num_classes)
+        self.criterion = SetCriterion(self.num_classes,  loss_weight=self.get_loss_weight(
+            args), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
+    
+    def get_loss_weight(self,args):
         return {"relation": args.rel_loss_weight, "head_entity": args.head_ent_loss_weight, "tail_entity": args.tail_ent_loss_weight}
+
+
+    def forward(self, *args, **kwargs):
+        return super().forward(*args, **kwargs)
+    
+    def training_step(self, batches,batch_idx):
+        input_ids, attention_mask,targets,_ = batches
+        outputs = self.model(input_ids, attention_mask)
+        loss = self.criterion(outputs, targets)
+        return loss
+
+    def validation_step(self, batches,batch_idx):
+        input_ids, attention_mask,targets,info = batches
+        gold = formulate_gold(targets, info)
+        outputs = self.model(input_ids, attention_mask)
+        prediction = generate_triple(outputs, info, self.args, self.num_classes)
+        return gold,prediction
+    
+    def validation_epoch_end(self, outputs):
+        golds = {}
+        preds = {}
+        for gold,pred in outputs:
+            golds.update(gold)
+            preds.update(pred)
+        result = self.metric(preds,golds)
+        self.log("f1",result["f1"], prog_bar=True)
+        self.log("acc",result["prec"], prog_bar=True)
+        self.log("recall",result["recall"], prog_bar=True)
+
+    def metric(self,pred, gold):
+        assert pred.keys() == gold.keys()
+        gold_num = 0
+        rel_num = 0
+        ent_num = 0
+        right_num = 0
+        pred_num = 0
+        for sent_idx in pred:
+            gold_num += len(gold[sent_idx])
+            pred_correct_num = 0
+            prediction = list(set([(ele.pred_rel, ele.head_start_index, ele.head_end_index, ele.tail_start_index, ele.tail_end_index) for ele in pred[sent_idx]]))
+            pred_num += len(prediction)
+            for ele in prediction:
+                if ele in gold[sent_idx]:
+                    right_num += 1
+                    pred_correct_num += 1
+                if ele[0] in [e[0] for e in gold[sent_idx]]:
+                    rel_num += 1
+                if ele[1:] in [e[1:] for e in gold[sent_idx]]:
+                    ent_num += 1
+                    
+        if pred_num == 0:
+            precision = -1
+            r_p = -1
+            e_p = -1
+        else:
+            precision = (right_num + 0.0) / pred_num
+            e_p = (ent_num + 0.0) / pred_num
+            r_p = (rel_num + 0.0) / pred_num
+
+        if gold_num == 0:
+            recall = -1
+            r_r = -1
+            e_r = -1
+        else:
+            recall = (right_num + 0.0) / gold_num
+            e_r = ent_num / gold_num
+            r_r = rel_num / gold_num
+
+        if (precision == -1) or (recall == -1) or (precision + recall) <= 0.:
+            f_measure = -1
+        else:
+            f_measure = 2 * precision * recall / (precision + recall)
+
+        return {"prec": precision, "recall": recall, "f1": f_measure}
+
+
+class Span4REDataLoader(Dataset):
+    def __init__(self,args,filename,is_training) -> None:
+        super().__init__()
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
+        self.is_training = is_training
+        with open(args.relation,'r') as f:
+            relation = json.load(f)
+        self.rel2id = relation[1]
+        self.rels_set = list(self.rel2id.values())
+        self.relation_size = len(self.rel2id)
+        self.relational_alphabet = Alphabet("Relation", unkflag=False, padflag=False)
+        
+        with open(filename,'r') as f:
+            lines = json.load(f)
+        self.datas = self.preprocess(lines)
+        
+        
+    def preprocess(self,lines):
+        samples = []
+        for i in range(len(lines)):
+            token_sent = [self.tokenizer.cls_token] + self.tokenizer.tokenize(self.remove_accents(lines[i]["sentText"])) + [self.tokenizer.sep_token]
+            triples = lines[i]["relationMentions"]
+            target = {"relation": [], "head_start_index": [], "head_end_index": [], "tail_start_index": [], "tail_end_index": []}
+            for triple in triples:
+                head_entity = self.remove_accents(triple["em1Text"])
+                tail_entity = self.remove_accents(triple["em2Text"])
+                head_token = self.tokenizer.tokenize(head_entity)
+                tail_token = self.tokenizer.tokenize(tail_entity)
+                relation_id = self.relational_alphabet.get_index(triple["label"])
+                head_start_index, head_end_index = self.list_index(head_token, token_sent)
+                assert head_end_index >= head_start_index
+                tail_start_index, tail_end_index = self.list_index(tail_token, token_sent)
+                assert tail_end_index >= tail_start_index
+                target["relation"].append(relation_id)
+                target["head_start_index"].append(head_start_index)
+                target["head_end_index"].append(head_end_index)
+                target["tail_start_index"].append(tail_start_index)
+                target["tail_end_index"].append(tail_end_index)
+            sent_id = self.tokenizer.convert_tokens_to_ids(token_sent)
+            samples.append([i, sent_id, target])
+        return samples
+    
+    def __len__(self,):
+        return self.datas
+    
+    def __getitem__(self, index):
+        return self.datas[index]
+
+    def list_index(self,list1: list, list2: list) -> list:
+        start = [i for i, x in enumerate(list2) if x == list1[0]]
+        end = [i for i, x in enumerate(list2) if x == list1[-1]]
+        if len(start) == 1 and len(end) == 1:
+            return start[0], end[0]
+        else:
+            for i in start:
+                for j in end:
+                    if i <= j:
+                        if list2[i:j+1] == list1:
+                            index = (i, j)
+                            break
+            return index[0], index[1]
+    
+    def remove_accents(self,text: str) -> str:
+        accents_translation_table = str.maketrans(
+        "áéíóúýàèìòùỳâêîôûŷäëïöüÿñÁÉÍÓÚÝÀÈÌÒÙỲÂÊÎÔÛŶÄËÏÖÜŸ",
+        "aeiouyaeiouyaeiouyaeiouynAEIOUYAEIOUYAEIOUYAEIOUY"
+        )
+        return text.translate(accents_translation_table)
+
+
+def collate_fn(batch_list):
+    batch_size = len(batch_list)
+    sent_idx = [ele[0] for ele in batch_list]
+    sent_ids = [ele[1] for ele in batch_list]
+    targets = [ele[2] for ele in batch_list]
+    sent_lens = list(map(len, sent_ids))
+    max_sent_len = max(sent_lens)
+    input_ids = torch.zeros(
+        (batch_size, max_sent_len), requires_grad=False).long()
+    attention_mask = torch.zeros(
+        (batch_size, max_sent_len), requires_grad=False, dtype=torch.float32)
+    for idx, (seq, seqlen) in enumerate(zip(sent_ids, sent_lens)):
+        input_ids[idx, :seqlen] = torch.LongTensor(seq)
+        attention_mask[idx, :seqlen] = torch.FloatTensor([1] * seqlen)
+
+    targets = [{k: torch.tensor(v, dtype=torch.long) for k, v in t.items()} for t in targets]
+    info = {"seq_len": sent_lens, "sent_idx": sent_idx}
+    return input_ids, attention_mask, targets, info
+    
