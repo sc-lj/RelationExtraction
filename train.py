@@ -13,7 +13,7 @@ from utils import statistics_text_length
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
     parser.add_argument('--model_type', default="prgc",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc"])
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc","span4re"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -169,6 +169,18 @@ def main():
         args.relation_number = relation_number
         
         model = PRGCPytochLighting(args)
+    elif args.model_type == "span4re":
+        from SPN4RE_Model import Span4REDataset,Span4REPytochLighting,collate_fn
+        train_dataset = Span4REDataset(args.train_file, args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        val_dataset = Span4REDataset(args.val_file, args, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+        relation_number = train_dataset.relation_size
+        args.relation_number = relation_number
+        args.steps = len(train_dataset)
+        model = Span4REPytochLighting(args)
         
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")

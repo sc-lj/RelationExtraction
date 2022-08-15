@@ -400,7 +400,7 @@ class Span4REPytochLighting(pl.LightningModule):
         super().__init__()
         self.args = args
         self.save_hyperparameters(args)
-        self.num_classes = args.num_classes
+        self.num_classes = args.relation_number
         self.model = SetPred4RE(args,self.num_classes)
         self.criterion = SetCriterion(self.num_classes,  loss_weight=self.get_loss_weight(
             args), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
@@ -483,7 +483,7 @@ class Span4REPytochLighting(pl.LightningModule):
         return {"prec": precision, "recall": recall, "f1": f_measure}
 
 
-class Span4REDataLoader(Dataset):
+class Span4REDataset(Dataset):
     def __init__(self,args,filename,is_training) -> None:
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
