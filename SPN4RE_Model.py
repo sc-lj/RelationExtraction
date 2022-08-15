@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch
 from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
 import torch.nn.functional as F
-from SPN4RE_utils import generate_triple,formulate_gold,Alphabet
+from SPN4RE_utils import generate_triple,formulate_gold
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
@@ -493,7 +493,6 @@ class Span4REDataLoader(Dataset):
         self.rel2id = relation[1]
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
-        self.relational_alphabet = Alphabet("Relation", unkflag=False, padflag=False)
         
         with open(filename,'r') as f:
             lines = json.load(f)
@@ -503,15 +502,15 @@ class Span4REDataLoader(Dataset):
     def preprocess(self,lines):
         samples = []
         for i in range(len(lines)):
-            token_sent = [self.tokenizer.cls_token] + self.tokenizer.tokenize(self.remove_accents(lines[i]["sentText"])) + [self.tokenizer.sep_token]
-            triples = lines[i]["relationMentions"]
+            token_sent = [self.tokenizer.cls_token] + self.tokenizer.tokenize(self.remove_accents(lines[i]["text"])) + [self.tokenizer.sep_token]
+            triples = lines[i]["triple_list"]
             target = {"relation": [], "head_start_index": [], "head_end_index": [], "tail_start_index": [], "tail_end_index": []}
             for triple in triples:
-                head_entity = self.remove_accents(triple["em1Text"])
-                tail_entity = self.remove_accents(triple["em2Text"])
+                head_entity = self.remove_accents(triple[0])
+                tail_entity = self.remove_accents(triple[2])
                 head_token = self.tokenizer.tokenize(head_entity)
                 tail_token = self.tokenizer.tokenize(tail_entity)
-                relation_id = self.relational_alphabet.get_index(triple["label"])
+                relation_id = self.rel2id[triple[0]]
                 head_start_index, head_end_index = self.list_index(head_token, token_sent)
                 assert head_end_index >= head_start_index
                 tail_start_index, tail_end_index = self.list_index(tail_token, token_sent)
