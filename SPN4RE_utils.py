@@ -3,9 +3,16 @@ import collections
 
 
 def _get_best_indexes(logits, n_best_size):
-    """Get the n-best logits from a list."""
-    index_and_score = sorted(
-        enumerate(logits), key=lambda x: x[1], reverse=True)
+    """Get the n-best logits from a list.
+    Args:
+        logits (_type_):list[seq_len]
+        n_best_size (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    # 按照logit的值进行排序，从大到小，选择前n_best_size个概率值的index
+    index_and_score = sorted(enumerate(logits), key=lambda x: x[1], reverse=True)
     best_indexes = []
     for i in range(len(index_and_score)):
         if i >= n_best_size:
@@ -15,6 +22,16 @@ def _get_best_indexes(logits, n_best_size):
 
 
 def generate_span(start_logits, end_logits, info, args):
+    """生成subject 和object 的head和tail的候选索引
+    Args:
+        start_logits (_type_): [bsz,num_generated_triples,seq_len]
+        end_logits (_type_): [bsz,num_generated_triples,seq_len]
+        info (_type_): _description_
+        args (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     seq_lens = info["seq_len"]  # including [CLS] and [SEP]
     sent_idxes = info["sent_idx"]
     _Prediction = collections.namedtuple(
@@ -60,6 +77,14 @@ def generate_span(start_logits, end_logits, info, args):
 
 
 def generate_relation(pred_rel_logits, info, args):
+    """获取每个num_generated_triples 概率最大的关系
+    Args:
+        pred_rel_logits (_type_): [bsz, num_generated_triples, num_classes]
+        info (_type_): _description_
+        args (_type_): _description_
+    Returns:
+        _type_: _description_
+    """
     rel_probs, pred_rels = torch.max(pred_rel_logits.softmax(-1), dim=2)
     rel_probs = rel_probs.cpu().tolist()
     pred_rels = pred_rels.cpu().tolist()
@@ -91,8 +116,11 @@ def generate_triple(output, info, args, num_classes):
     for sent_idx in pred_rel_dict:
         triples[sent_idx] = []
         for triple_id in range(args.num_generated_triples):
+            # 预测的关系
             pred_rel = pred_rel_dict[sent_idx][triple_id]
+            # 预测的subject
             pred_head = pred_head_ent_dict[sent_idx][triple_id]
+            # 预测的object
             pred_tail = pred_tail_ent_dict[sent_idx][triple_id]
             triple = generate_strategy(
                 pred_rel, pred_head, pred_tail, num_classes, _Pred_Triple)

@@ -109,7 +109,6 @@ def parser_args():
                     help="解码时，最大生成triple的数量")
     parser.add_argument('--n_best_size', type=int, default=5,help="解码时,选择前多少个triple作为最终的triple")
     
-    
     args = parser.parse_args()
     return args
 
@@ -224,7 +223,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[0],
+                         gpus=[1],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

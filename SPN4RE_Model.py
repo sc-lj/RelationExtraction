@@ -140,22 +140,29 @@ class SetDecoder(nn.Module):
                 hidden_states, encoder_hidden_states, encoder_attention_mask
             )
             hidden_states = layer_outputs[0]
-
+        # 对query 的hidden 进行分类
         class_logits = self.decoder2class(hidden_states)
 
-        # 
+        # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
+        # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         head_start_logits = self.head_start_metric_3(torch.tanh(
             self.head_start_metric_1(hidden_states).unsqueeze(2) + self.head_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
         
+        # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
+        # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         head_end_logits = self.head_end_metric_3(torch.tanh(
             self.head_end_metric_1(hidden_states).unsqueeze(2) + self.head_end_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
 
+        # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
+        # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         tail_start_logits = self.tail_start_metric_3(torch.tanh(
             self.tail_start_metric_1(hidden_states).unsqueeze(2) + self.tail_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
         
+        # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
+        # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         tail_end_logits = self.tail_end_metric_3(torch.tanh(
             self.tail_end_metric_1(hidden_states).unsqueeze(2) + self.tail_end_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
@@ -179,8 +186,7 @@ class HungarianMatcher(nn.Module):
 
     @torch.no_grad()
     def forward(self, outputs, targets):
-        """ Performs the matching
-
+        """ 将预测和target进行匹配
         Params:
             outputs: This is a dict that contains at least these entries:
                  "pred_rel_logits": Tensor of dim [batch_size, num_generated_triples, num_classes] with the classification logits
@@ -193,24 +199,36 @@ class HungarianMatcher(nn.Module):
             For each batch element, it holds:
                 len(index_i) = len(index_j) = min(num_generated_triples, num_gold_triples)
         """
+        # 预测的关系
         bsz, num_generated_triples = outputs["pred_rel_logits"].shape[:2]
         # We flatten to compute the cost matrices in a batch
         # [bsz * num_generated_triples, num_classes]
         pred_rel = outputs["pred_rel_logits"].flatten(0, 1).softmax(-1)
+        # [len(sum(x,[])),1] 将关系展平,[[2,3],[2]]-> [2,3,2]
         gold_rel = torch.cat([v["relation"] for v in targets])
         # after masking the pad token
+        # [bsz * num_generated_triples, seq_len]
         pred_head_start = outputs["head_start_logits"].flatten(
-            0, 1).softmax(-1)  # [bsz * num_generated_triples, seq_len]
+            0, 1).softmax(-1)
+        # [bsz * num_generated_triples, seq_len]
         pred_head_end = outputs["head_end_logits"].flatten(0, 1).softmax(-1)
+        # [bsz * num_generated_triples, seq_len]
         pred_tail_start = outputs["tail_start_logits"].flatten(
             0, 1).softmax(-1)
+        # [bsz * num_generated_triples, seq_len]
         pred_tail_end = outputs["tail_end_logits"].flatten(0, 1).softmax(-1)
 
+        # [len(sum(x,[])),1] 将关系展平,[[2,3],[2]]-> [2,3,2]
         gold_head_start = torch.cat([v["head_start_index"] for v in targets])
+        # [len(sum(x,[])),1] 将关系展平,[[2,3],[2]]-> [2,3,2]
         gold_head_end = torch.cat([v["head_end_index"] for v in targets])
+        # [len(sum(x,[])),1] 将关系展平,[[2,3],[2]]-> [2,3,2]
         gold_tail_start = torch.cat([v["tail_start_index"] for v in targets])
+        # [len(sum(x,[])),1] 将关系展平,[[2,3],[2]]-> [2,3,2]
         gold_tail_end = torch.cat([v["tail_end_index"] for v in targets])
         if self.matcher == "avg":
+            # 从预测的关系或者token概率中，选取在gold关系或者token中的概率
+            # [bsz*num_generated_triples,len(x_i)] x_i 是一个batch 展品后的target 长度
             cost = - self.cost_relation * pred_rel[:, gold_rel] - self.cost_head * 1/2 * (
                 pred_head_start[:, gold_head_start] + pred_head_end[:, gold_head_end]) - self.cost_tail * 1/2 * (pred_tail_start[:, gold_tail_start] + pred_tail_end[:, gold_tail_end])
         elif self.matcher == "min":
@@ -219,10 +237,21 @@ class HungarianMatcher(nn.Module):
             cost = - torch.min(cost, dim=1)[0]
         else:
             raise ValueError("Wrong matcher")
+        # [bsz,num_generated_triples,len(x_i)] x_i 是一个batch 展品后的target 长度
         cost = cost.view(bsz, num_generated_triples, -1).cpu()
+        # 每个样本中target的数量
         num_gold_triples = [len(v["relation"]) for v in targets]
+        # cost.split(num_gold_triples, -1) 按照num_gold_triples对cost按照-1维度进行切分。
+        # linear_sum_assignment:假设有4个工人（workers）a,b,c,d，有三项任务（job）p,q,r，每个工人干每一项活的成本都不同，那么便可构造一个代价矩阵（cost matrix）,
+        # 使用linear_sum_assignment 得到最佳分配下的行列索引值，
+        # cost = np.array([[4, 1, 3], [2, 0, 5], [3, 2, 2], [1, 1, 1]]) 
+        # r, c = linear_sum_assignment(cost) => (array([1, 2, 3]), array([1, 2, 0]))
+        # "最小成本："cost[r, c].sum()
+        # 获取每个batch下，gold 标签在num_generated_triples中的索引
+        # 获取每个样本下，num_generated_triples 成本(损失最小的)某一个或某几个num_generated_triple，以及某一个或某几个targe order
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(
             cost.split(num_gold_triples, -1))]
+        # 成本最小的组成的，num_generated_triples的index，和 target order
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 
@@ -252,17 +281,19 @@ class SetCriterion(nn.Module):
         self.register_buffer('rel_weight', rel_weight)
 
     def forward(self, outputs, targets):
-        """ This performs the loss computation.
+        """ 计算损失函数
         Parameters:
-             outputs: dict of tensors, see the output specification of the model for the format
+             outputs: dict of tensors,
              targets: list of dicts, such that len(targets) == batch_size.
                       The expected keys in each dict depends on the losses applied, see each loss' doc
         """
         # Retrieve the matching between the outputs of the last layer and the targets
+        # target 与 num_generated_triples 组合成本最小时，num_generated_triples的index和target order的index
         indices = self.matcher(outputs, targets)
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
+            # 判断是否含有关系
             if loss == "entity" and self.empty_targets(targets):
                 pass
             else:
@@ -272,13 +303,14 @@ class SetCriterion(nn.Module):
         return losses
 
     def relation_loss(self, outputs, targets, indices):
-        """Classification loss (NLL)
+        """关系分类损失函数。Classification loss (NLL)
         targets dicts must contain the key "relation" containing a tensor of dim [bsz]
         """
-        src_logits = outputs['pred_rel_logits']  # [bsz, num_generated_triples, num_rel+1]
+        # [bsz, num_generated_triples, num_rel+1]
+        src_logits = outputs['pred_rel_logits']
         idx = self._get_src_permutation_idx(indices)
-        target_classes_o = torch.cat(
-            [t["relation"][i] for t, (_, i) in zip(targets, indices)])
+        target_classes_o = torch.cat([t["relation"][i] for t, (_, i) in zip(targets, indices)])
+        # [bsz, num_generated_triples] 并全用 self.num_classes初始化填充
         target_classes = torch.full(src_logits.shape[:2], self.num_classes,
                                     dtype=torch.int64, device=src_logits.device)
         target_classes[idx] = target_classes_o
@@ -305,15 +337,19 @@ class SetCriterion(nn.Module):
 
     def _get_src_permutation_idx(self, indices):
         # permute predictions following indices
+        # 对indices展开，[[1,3,4],[2,4]] -> [0,0,0,1,1]
         batch_idx = torch.cat([torch.full_like(src, i)
                               for i, (src, _) in enumerate(indices)])
+        # [[1,3,4],[2,4]] -> [1,3,4,2,4]
         src_idx = torch.cat([src for (src, _) in indices])
         return batch_idx, src_idx
 
     def _get_tgt_permutation_idx(self, indices):
         # permute targets following indices
+        # 对indices展开，[[1,3,4],[2,4]] -> [0,0,0,1,1]
         batch_idx = torch.cat([torch.full_like(tgt, i)
                               for i, (_, tgt) in enumerate(indices)])
+        # 对indices展开，[[1,3,4],[2,4]] -> [0,0,0,1,1]
         tgt_idx = torch.cat([tgt for (_, tgt) in indices])
         return batch_idx, tgt_idx
 
@@ -328,7 +364,9 @@ class SetCriterion(nn.Module):
     def entity_loss(self, outputs, targets, indices):
         """Compute the losses related to the position of head entity or tail entity
         """
+        # ([sum(xi)],[sum(xi)]),分别是(batch idxs, num_generated_triples indexs)
         idx = self._get_src_permutation_idx(indices)
+        # [bsz,num_generated_triples,seq_len]-> [sum(xi),seq_len]
         selected_pred_head_start = outputs["head_start_logits"][idx]
         selected_pred_head_end = outputs["head_end_logits"][idx]
         selected_pred_tail_start = outputs["tail_start_logits"][idx]
@@ -401,6 +439,7 @@ class SetPred4RE(nn.Module):
         class_logits, head_start_logits, head_end_logits, tail_start_logits, tail_end_logits = self.decoder(
             encoder_hidden_states=last_hidden_state, encoder_attention_mask=attention_mask)
         # head_start_logits, head_end_logits, tail_start_logits, tail_end_logits = span_logits.split(1, dim=-1)
+        # [batch_size,num_generated_triples,seq_len]
         head_start_logits = head_start_logits.squeeze(-1).masked_fill(
             (1 - attention_mask.unsqueeze(1)).bool(), -10000.0)
         head_end_logits = head_end_logits.squeeze(-1).masked_fill(
