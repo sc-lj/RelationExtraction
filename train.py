@@ -14,7 +14,7 @@ from utils import statistics_text_length
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
     parser.add_argument('--model_type', default="span4re",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re"])
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -35,6 +35,10 @@ def parser_args():
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
+    parser.add_argument('--dropout_prob', default=0.1, type=float,
+                        help='dropout rate')
+    parser.add_argument('--entity_pair_dropout', default=0.1, type=float,
+                        help='实体对的dropout rate')
 
     # For TDEER Model
     parser.add_argument('--max_sample_triples', default=None,
@@ -59,16 +63,6 @@ def parser_args():
 
     parser.add_argument('--encoder', default="BERT",
                         type=str, help='specify max sample triples')
-    parser.add_argument('--enc_hidden_size', default=100, type=int,
-                        help='the paramter of encoder lstm ')
-    parser.add_argument('--dec_hidden_size', default=20, type=int,
-                        help='the paramter of encoder lstm ')
-    parser.add_argument('--emb_dropout', default=0.1,
-                        type=float, help='the paramter of encoder lstm')
-    parser.add_argument('--rnn_dropout', default=0.1, type=float,
-                        help='the paramter of encoder lstm ')
-    parser.add_argument('--word_embedding_dim', default=300, type=int,
-                        help='the paramter of encoder lstm ')
     parser.add_argument('--data_out_dir', default="./data/data/NYT", type=str,
                         help='处理后的数据保存的路径')
     # for tplinker preprocess args
@@ -213,6 +207,22 @@ def main():
         args.relation_number = relation_number
         args.steps = len(train_dataset)
         model = Span4REPytochLighting(args)
+
+    elif args.model_type == "one4rel":
+        from OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
+        args.max_len = 170
+        train_dataset = OneRelDataset(args.train_file, args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        val_dataset = OneRelDataset(args.val_file, args, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+
+        relation_number = train_dataset.relation_size
+        args.relation_number = relation_number
+        args.tag_size = len(TAG2ID)
+        args.steps = len(train_dataset)
+        model = OneRelPytochLighting(args)
 
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")

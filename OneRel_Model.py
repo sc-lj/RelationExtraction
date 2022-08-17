@@ -22,11 +22,11 @@ class OneRelModel(nn.Module):
     def __init__(self, config):
         super(OneRelModel, self).__init__()
         self.config = config
-        self.bert_dim = config.bert_dim
-        self.bert_encoder = BertModel.from_pretrained(
+        self.bert = BertModel.from_pretrained(
             config.pretrain_path, cache_dir='./bertbaseuncased')
+        self.bert_dim = self.bert.hidden_size
         self.relation_matrix = nn.Linear(
-            self.bert_dim * 3, self.config.rel_num * self.config.tag_size)
+            self.bert_dim * 3, self.config.relation_number * self.config.tag_size)
         self.projection_matrix = nn.Linear(
             self.bert_dim * 2, self.bert_dim * 3)
 
@@ -34,9 +34,9 @@ class OneRelModel(nn.Module):
         self.dropout_2 = nn.Dropout(self.config.entity_pair_dropout)
         self.activation = nn.ReLU()
 
-    def forward(self, input_ids, attention_mask, train=True):
+    def forward(self, input_ids, attention_mask):
         # [batch_size, seq_len, bert_dim(768)]
-        encoded_text = self.bert_encoder(
+        encoded_text = self.bert(
             input_ids, attention_mask=attention_mask)[0]
         encoded_text = self.dropout(encoded_text)
         # encoded_text: [batch_size, seq_len, bert_dim(768)] 1,2,3
@@ -64,8 +64,7 @@ class OneRelModel(nn.Module):
 class OneRelPytochLighting(pl.LightningModule):
     def __init__(self, args) -> None:
         super().__init__()
-        args.seq_tag_size = self.seq_tag_size
-        self.model = OneRelModel(args.pretrain_path, args)
+        self.model = OneRelModel(args)
         self.save_hyperparameters(args)
         self.loss = nn.CrossEntropyLoss(reduction="none")
         with open(args.relation, 'r') as f:
@@ -255,7 +254,7 @@ def find_head_idx(source, target):
     return -1
 
 
-class REDataset(Dataset):
+class OneRelDataset(Dataset):
     def __init__(self, filename, args, is_training):
         self.tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
@@ -264,7 +263,7 @@ class REDataset(Dataset):
         self.rel2id = relation[1]
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
-
+        self.args = args
         with open(filename, 'r') as f:
             lines = json.load(f)
 
@@ -277,21 +276,20 @@ class REDataset(Dataset):
         datas = []
         for line in lines:
             root_text = line['text']
-            text = ' '.join(root_text.split()[:self.config.max_len])
-            tokens = self.tokenizer.tokenize(text)
+            tokens = self.tokenizer.tokenize(root_text)
 
-            if len(tokens) > self.config.bert_max_len:
-                tokens = tokens[: self.config.bert_max_len]
+            if len(tokens) > 512:
+                tokens = tokens[: 512]
             text_len = len(tokens)
 
-            token_ids, masks = self.tokenizer.encode(first=text)
+            token_ids, masks = self.tokenizer.encode(first=root_text)
             if len(token_ids) > text_len:
                 token_ids = token_ids[:text_len]
                 masks = masks[:text_len]
             token_ids = np.array(token_ids)
             masks = np.array(masks) + 1
             loss_masks = np.array(masks) + 1
-            triple_matrix = np.zeros((self.config.rel_num, text_len, text_len))
+            triple_matrix = np.zeros((self.relation_size, text_len, text_len))
             datas.append([token_ids, masks, loss_masks, text_len,
                          triple_matrix, line['triple_list'], tokens, root_text])
         return datas
@@ -300,11 +298,10 @@ class REDataset(Dataset):
         datas = []
         for line in lines:
             root_text = line['text']
-            text = ' '.join(root_text.split()[:self.config.max_len])
-            tokens = self.tokenizer.tokenize(text)
+            tokens = self.tokenizer.tokenize(root_text)
 
-            if len(tokens) > self.config.bert_max_len:
-                tokens = tokens[: self.config.bert_max_len]
+            if len(tokens) > 512:
+                tokens = tokens[: 512]
             text_len = len(tokens)
             s2ro_map = {}
             for triple in line['triple_list']:
@@ -320,7 +317,7 @@ class REDataset(Dataset):
                         (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
-                token_ids, segment_ids = self.tokenizer.encode(first=text)
+                token_ids, segment_ids = self.tokenizer.encode(first=root_text)
                 masks = segment_ids
                 if len(token_ids) > text_len:
                     token_ids = token_ids[:text_len]
@@ -330,7 +327,7 @@ class REDataset(Dataset):
                 masks = np.array(masks) + 1
                 loss_masks = np.ones((mask_length, mask_length))
                 triple_matrix = np.zeros(
-                    (self.config.rel_num, text_len, text_len))
+                    (self.relation_size, text_len, text_len))
                 for s in s2ro_map:
                     sub_head = s[0]
                     sub_tail = s[1]
