@@ -10,10 +10,11 @@ import json
 import os
 from utils import statistics_text_length
 
+
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
     parser.add_argument('--model_type', default="span4re",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker","prgc","span4re"])
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
@@ -32,7 +33,8 @@ def parser_args():
                         help='specify the epoch size')
     parser.add_argument('--batch_size', default=8, type=int,
                         help='specify the batch size')
-    parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
+    parser.add_argument('--output_path', default="event_extract",
+                        type=str, help='将每轮的验证结果保存的路径')
 
     # For TDEER Model
     parser.add_argument('--max_sample_triples', default=None,
@@ -41,12 +43,12 @@ def parser_args():
                         help='specify negative sample num')
 
     # for TPlinker Model
-    parser.add_argument('--shaking_type', default="cln_plus",choices=['cat',"cat_plus","cln","cln_plus"],
+    parser.add_argument('--shaking_type', default="cln_plus", choices=['cat', "cat_plus", "cln", "cln_plus"],
                         type=str, help='specify max sample triples')
     parser.add_argument('--tok_pair_sample_rate', default=1,)
-    parser.add_argument('--inner_enc_type', default="lstm", type=str,choices=['mix_pooling',"max_pooling","mean_pooling","lstm"],
+    parser.add_argument('--inner_enc_type', default="lstm", type=str, choices=['mix_pooling', "max_pooling", "mean_pooling", "lstm"],
                         help='valid only if cat_plus or cln_plus is set. It is the way how to encode inner tokens between each token pairs. If you only want to reproduce the results, just leave it alone.')
-    parser.add_argument('--match_pattern', default="whole_text",choices=["whole_text"],
+    parser.add_argument('--match_pattern', default="whole_text", choices=["whole_text"],
                         type=str, help='specify max sample triples')
     parser.add_argument('--max_seq_len', default=512, type=int,
                         help='specify negative sample num')
@@ -80,11 +82,16 @@ def parser_args():
                         help="check whether there is any error with token spans, if there is, print the unmatch info")
     parser.add_argument(
         '--ent2id_path', default="./data/data/NYT/ent2id.json", type=str, help="预处理的实体标签的保存路径")
-    parser.add_argument('--ghm', default=False,type=bool,help="是否使用GHM算法进行损失平滑")
-    parser.add_argument('--decay_rate', default=0.999,type=float,help="StepLR 参数")
-    parser.add_argument('--decay_steps', default=100,type=int,help="StepLR 参数")
-    parser.add_argument('--T_mult', default=1,type=float,help="CosineAnnealingWarmRestarts 参数")
-    parser.add_argument('--rewarm_epoch_num', default=2,type=int,help="CosineAnnealingWarmRestarts 参数")
+    parser.add_argument('--ghm', default=False,
+                        type=bool, help="是否使用GHM算法进行损失平滑")
+    parser.add_argument('--decay_rate', default=0.999,
+                        type=float, help="StepLR 参数")
+    parser.add_argument('--decay_steps', default=100,
+                        type=int, help="StepLR 参数")
+    parser.add_argument('--T_mult', default=1, type=float,
+                        help="CosineAnnealingWarmRestarts 参数")
+    parser.add_argument('--rewarm_epoch_num', default=2,
+                        type=int, help="CosineAnnealingWarmRestarts 参数")
 
     # for PRGC model
     parser.add_argument('--corres_threshold', type=float,
@@ -95,20 +102,24 @@ def parser_args():
                         default="concat", help="way to embedding")
     parser.add_argument('--ensure_rel', default=True, help="是否需要对关系进行负采样")
     parser.add_argument('--num_negs', type=int, default=4,
-                    help="当对关系进行负采样时,负采样的个数")
-    parser.add_argument('--drop_prob', type=float, default=0.2,help="对各个预测模块采用的drop out率")
-    
+                        help="当对关系进行负采样时,负采样的个数")
+    parser.add_argument('--drop_prob', type=float,
+                        default=0.2, help="对各个预测模块采用的drop out率")
+
     # for span4re model argument
     parser.add_argument('--loss_weight', type=list,
-                        default=[1,2,2], help="关系,subject和object的损失权重")
+                        default=[1, 2, 2], help="关系,subject和object的损失权重")
     parser.add_argument('--na_rel_coef', type=float,
                         default=1, help="无关关系的权重系数")
-    parser.add_argument('--matcher',type=str, default="avg", choices=['avg', 'min'])
-    parser.add_argument('--num_decoder_layers',type=int, default=3, help="decoder 的层数")
+    parser.add_argument('--matcher', type=str,
+                        default="avg", choices=['avg', 'min'])
+    parser.add_argument('--num_decoder_layers', type=int,
+                        default=3, help="decoder 的层数")
     parser.add_argument('--num_generated_triples', type=int, default=10,
-                    help="解码时，最大生成triple的数量")
-    parser.add_argument('--n_best_size', type=int, default=5,help="解码时,选择前多少个triple作为最终的triple")
-    
+                        help="解码时，最大生成triple的数量")
+    parser.add_argument('--n_best_size', type=int, default=5,
+                        help="解码时,选择前多少个triple作为最终的triple")
+
     args = parser.parse_args()
     return args
 
@@ -123,7 +134,7 @@ def main():
         val_dataset = TDEERDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
-        
+
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.steps = len(train_dataset)
@@ -131,14 +142,16 @@ def main():
 
     elif args.model_type == "tplinker":
         from TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
-        from tplinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
+        from TPlinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
-        max_length = statistics_text_length(args.train_file,tokenizer)
-        print("最大文本长度为:",max_length)
+        max_length = statistics_text_length(args.train_file, tokenizer)
+        print("最大文本长度为:", max_length)
         args.max_seq_len = max_length+2
-        get_tok2char_span_map = lambda text: tokenizer.encode_plus(text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
+
+        def get_tok2char_span_map(text): return tokenizer.encode_plus(
+            text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
         # 数据预处理
         data_path = os.path.join(args.data_out_dir, "train.json")
         if not os.path.exists(data_path):
@@ -164,28 +177,30 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        from PRGC_Model import PRGCDataset,PRGCPytochLighting,collate_fn_test,collate_fn_train
-        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
-        max_length = statistics_text_length(args.train_file,tokenizer)
-        print("最大文本长度为:",max_length)
+        from PRGC_Model import PRGCDataset, PRGCPytochLighting, collate_fn_test, collate_fn_train
+        tokenizer = BertTokenizerFast.from_pretrained(
+            args.pretrain_path, cache_dir="./bertbaseuncased")
+        max_length = statistics_text_length(args.train_file, tokenizer)
+        print("最大文本长度为:", max_length)
         args.max_seq_len = max_length
-        
-        train_dataset = PRGCDataset( args,args.train_file, is_training=True)
+
+        train_dataset = PRGCDataset(args, args.train_file, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = PRGCDataset( args,args.val_file, is_training=False)
+        val_dataset = PRGCDataset(args, args.val_file, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
-        
+
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         model = PRGCPytochLighting(args)
-    
+
     elif args.model_type == "span4re":
-        from SPN4RE_Model import Span4REDataset,Span4REPytochLighting,collate_fn
-        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
-        max_length = statistics_text_length(args.train_file,tokenizer)
-        print("最大文本长度为:",max_length)
+        from SPN4RE_Model import Span4REDataset, Span4REPytochLighting, collate_fn
+        tokenizer = BertTokenizerFast.from_pretrained(
+            args.pretrain_path, cache_dir="./bertbaseuncased")
+        max_length = statistics_text_length(args.train_file, tokenizer)
+        print("最大文本长度为:", max_length)
         args.max_span_length = max_length
         train_dataset = Span4REDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
@@ -193,15 +208,15 @@ def main():
         val_dataset = Span4REDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
-        
+
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.steps = len(train_dataset)
         model = Span4REPytochLighting(args)
-        
+
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
-    
+
     checkpoint_callback = ModelCheckpoint(
         save_top_k=8,
         verbose=True,

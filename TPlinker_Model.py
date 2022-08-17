@@ -17,7 +17,7 @@ import math
 from torch.nn import Parameter
 import re
 import os
-from tplinker_utils import HandshakingTaggingScheme, MetricsCalculator, DataMaker4Bert
+from TPlinker_utils import HandshakingTaggingScheme, MetricsCalculator, DataMaker4Bert
 
 
 class LayerNorm(nn.Module):
@@ -171,7 +171,7 @@ class HandshakingKernel(nn.Module):
             repeat_hiddens = hidden_each_step[:, None, :].repeat(
                 1, seq_len - ind, 1)
             # 当前ind 位置的token的表征与该位置后面的所有token的表征的交互方式
-            if self.shaking_type == "cat": # 直接拼接
+            if self.shaking_type == "cat":  # 直接拼接
                 shaking_hiddens = torch.cat(
                     [repeat_hiddens, visible_hiddens], dim=-1)
                 shaking_hiddens = torch.tanh(self.combine_fc(shaking_hiddens))
@@ -244,14 +244,17 @@ class TPLinkerPlusBert(nn.Module):
             end_ind = min(start_ind + segment_len, shaking_seq_len)
             # sampled_tok_pair_indices: (batch_size, ~segment_len) ~end_ind - start_ind <= segment_len
             # 该段在原序列的索引
-            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[None, :].repeat(shaking_hiddens.size()[0], 1)
+            sampled_tok_pair_indices = torch.arange(start_ind, end_ind)[
+                None, :].repeat(shaking_hiddens.size()[0], 1)
             # sampled_tok_pair_indices = torch.randint(shaking_seq_len, (shaking_hiddens.size()[0], segment_len))
-            sampled_tok_pair_indices = sampled_tok_pair_indices.to(shaking_hiddens.device)
+            sampled_tok_pair_indices = sampled_tok_pair_indices.to(
+                shaking_hiddens.device)
 
             # sampled_tok_pair_indices will tell model what token pairs should be fed into fcs
             # shaking_hiddens: (batch_size, ~segment_len, hidden_size)
             # 获取该段的handshaking表征
-            shaking_hiddens = shaking_hiddens.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, shaking_hiddens.size()[-1]))
+            shaking_hiddens = shaking_hiddens.gather(
+                1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, shaking_hiddens.size()[-1]))
 
         # outputs: (batch_size, segment_len, tag_size) or (batch_size, shaking_seq_len, tag_size)
         outputs = self.fc(shaking_hiddens)
@@ -260,30 +263,32 @@ class TPLinkerPlusBert(nn.Module):
 
 
 class TPlinkerPytochLighting(pl.LightningModule):
-    def __init__(self, args,handshaking_tagger) -> None:
+    def __init__(self, args, handshaking_tagger) -> None:
         super().__init__()
         self.args = args
         self.metrics = MetricsCalculator(handshaking_tagger)
-        self.tag_size = handshaking_tagger.get_tag_size() # handshake 构建的标签序列长度
+        self.tag_size = handshaking_tagger.get_tag_size()  # handshake 构建的标签序列长度
         self.model = TPLinkerPlusBert(args.pretrain_path, self.tag_size,
                                       args.shaking_type, args.inner_enc_type, args.tok_pair_sample_rate)
         self.step = -1
         self.num_step = args.num_step
         self.save_hyperparameters(args)
-        
+
     def training_step(self, batch, idx):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
         pred_small_shaking_outputs, sampled_tok_pair_indices = self.model(
             batch_input_ids, batch_attention_mask, batch_token_type_ids)
         # 采样段对应的标签
-        batch_small_shaking_tag = batch_shaking_tag.gather(1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.tag_size))
-        loss = self.loss_func(pred_small_shaking_outputs, batch_small_shaking_tag)
+        batch_small_shaking_tag = batch_shaking_tag.gather(
+            1, sampled_tok_pair_indices[:, :, None].repeat(1, 1, self.tag_size))
+        loss = self.loss_func(pred_small_shaking_outputs,
+                              batch_small_shaking_tag)
         return loss
 
     def loss_func(self, y_pred, y_true):
         return self.metrics.loss_func(y_pred, y_true, ghm=self.args.ghm)
 
-    def validation_step(self, batch,step_idx):
+    def validation_step(self, batch, step_idx):
         sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag = batch
         pred_shaking_outputs, _ = self.model(batch_input_ids,
                                              batch_attention_mask,
@@ -294,7 +299,7 @@ class TPlinkerPytochLighting(pl.LightningModule):
                                                       batch_shaking_tag)
         if self.step <= 0:
             self.step += 1
-            return sample_acc.item(),{},1
+            return sample_acc.item(), {}, 1
         cpg_dict = self.metrics.get_cpg(sample_list,
                                         tok2char_span_list,
                                         pred_shaking_tag,
@@ -317,8 +322,8 @@ class TPlinkerPytochLighting(pl.LightningModule):
                     total_cpg_dict[k][idx] += cpg[idx]
             number += num
         if len(total_cpg_dict) == 0:
-            print("total_cpg_dict:",total_cpg_dict)
-            return 
+            print("total_cpg_dict:", total_cpg_dict)
+            return
         avg_sample_acc = total_sample_acc / number
         rel_prf = self.metrics.get_prf_scores(
             total_cpg_dict["rel_cpg"][0], total_cpg_dict["rel_cpg"][1], total_cpg_dict["rel_cpg"][2])
@@ -333,13 +338,13 @@ class TPlinkerPytochLighting(pl.LightningModule):
             "val_ent_prec": ent_prf[0],
             "val_ent_recall": ent_prf[1],
             "val_ent_f1": ent_prf[2]}
-        self.log("f1",log_dict["f1"], prog_bar=True)
-        self.log("acc",log_dict["prec"], prog_bar=True)
-        self.log("recall",log_dict["recall"], prog_bar=True)
-        self.log("ent_f1",log_dict["val_ent_f1"], prog_bar=True)
-        self.log("ent_prec",log_dict["val_ent_prec"], prog_bar=True)
-        self.log("ent_rec",log_dict["val_ent_recall"], prog_bar=True)
-        self.log("tag_acc",log_dict["val_shaking_tag_acc"], prog_bar=True)
+        self.log("f1", log_dict["f1"], prog_bar=True)
+        self.log("acc", log_dict["prec"], prog_bar=True)
+        self.log("recall", log_dict["recall"], prog_bar=True)
+        self.log("ent_f1", log_dict["val_ent_f1"], prog_bar=True)
+        self.log("ent_prec", log_dict["val_ent_prec"], prog_bar=True)
+        self.log("ent_rec", log_dict["val_ent_recall"], prog_bar=True)
+        self.log("tag_acc", log_dict["val_shaking_tag_acc"], prog_bar=True)
 
     def configure_optimizers(self):
         """[配置优化参数]
@@ -364,7 +369,8 @@ class TPlinkerPytochLighting(pl.LightningModule):
         StepLR = torch.optim.lr_scheduler.MultiStepLR(
             optimizer, milestones=milestones, gamma=0.85)
         # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", verbose = True, patience = 6)
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size = self.args.decay_steps, gamma = self.args.decay_rate)
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=self.args.decay_steps, gamma=self.args.decay_rate)
         # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, self.num_step * self.args.rewarm_epoch_num, self.args.T_mult)
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
@@ -372,21 +378,21 @@ class TPlinkerPytochLighting(pl.LightningModule):
 
 
 class TPlinkerDataset(Dataset):
-    def __init__(self, args, data_maker:DataMaker4Bert, tokenizer, is_training=False):
+    def __init__(self, args, data_maker: DataMaker4Bert, tokenizer, is_training=False):
         super().__init__()
         self.is_training = is_training
         self.datas = []
         self._tokenize = tokenizer.tokenize
         self.get_tok2char_span_map = lambda text: tokenizer.encode_plus(
             text, return_offsets_mapping=True, add_special_tokens=False)["offset_mapping"]
-        
+
         self.args = args
-        
+
         if is_training:
             self.data_type = "train"
         else:
             self.data_type = "val"
-            
+
         data_path = os.path.join(
             self.args.data_out_dir, "{}.json".format(self.data_type))
 
