@@ -251,7 +251,7 @@ class HungarianMatcher(nn.Module):
         # 获取每个样本下，num_generated_triples 成本(损失最小的)某一个或某几个num_generated_triple，以及某一个或某几个targe order
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(
             cost.split(num_gold_triples, -1))]
-        # 成本最小的组成的，num_generated_triples的index，和 target order
+        # 成本最小的组成的，num_generated_triples的index 和 target order
         return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
 
 
@@ -467,7 +467,6 @@ class Span4REPytochLighting(pl.LightningModule):
     def get_loss_weight(self,loss_weight):
         return {"relation": loss_weight[0], "head_entity": loss_weight[1], "tail_entity": loss_weight[2]}
 
-
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
     
@@ -497,14 +496,15 @@ class Span4REPytochLighting(pl.LightningModule):
 
     def metric(self,pred, gold):
         assert pred.keys() == gold.keys()
-        gold_num = 0
-        rel_num = 0
-        ent_num = 0
-        right_num = 0
-        pred_num = 0
+        gold_num = 0 # gold数量
+        rel_num = 0 # 一个样本中所有关系预测正确的数量
+        ent_num = 0 # 一个样本中所有实体预测正确的数量
+        right_num = 0 # 一个样本中所有都正确的数量
+        pred_num = 0 # 预测数量
         for sent_idx in pred:
             gold_num += len(gold[sent_idx])
             pred_correct_num = 0
+            # 一个样本中所有关系，subject，object的组合
             prediction = list(set([(ele.pred_rel, ele.head_start_index, ele.head_end_index, ele.tail_start_index, ele.tail_end_index) for ele in pred[sent_idx]]))
             pred_num += len(prediction)
             for ele in prediction:

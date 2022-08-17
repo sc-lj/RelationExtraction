@@ -131,13 +131,17 @@ def generate_triple(output, info, args, num_classes):
 
 
 def generate_strategy(pred_rel, pred_head, pred_tail, num_classes, _Pred_Triple):
+    # 预测的关系不是无关的关系
     if pred_rel.pred_rel != num_classes:
+        # subject、object都不为空
         if pred_head and pred_tail:
             for ele in pred_head:
+                # subject 的开头不是token中的第一个，即[cls]
                 if ele.start_index != 0:
                     break
             head = ele
             for ele in pred_tail:
+                # object 的开头不是token中的第一个，即[cls]
                 if ele.start_index != 0:
                     break
             tail = ele
@@ -146,8 +150,6 @@ def generate_strategy(pred_rel, pred_head, pred_tail, num_classes, _Pred_Triple)
             return
     else:
         return
-
-
 
 def formulate_gold(target, info):
     sent_idxes = info["sent_idx"]
