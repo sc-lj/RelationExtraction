@@ -47,5 +47,5 @@ Official Code For [OneRel: Joint Entity and Relation Extraction with One Module 
 
 ![overview](docs/OneRel-Overview.png)
 
-参数量：
+参数量：113 M
 

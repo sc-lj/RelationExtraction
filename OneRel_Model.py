@@ -24,7 +24,7 @@ class OneRelModel(nn.Module):
         self.config = config
         self.bert = BertModel.from_pretrained(
             config.pretrain_path, cache_dir='./bertbaseuncased')
-        self.bert_dim = self.bert.hidden_size
+        self.bert_dim = self.bert.config.hidden_size
         self.relation_matrix = nn.Linear(
             self.bert_dim * 3, self.config.relation_number * self.config.tag_size)
         self.projection_matrix = nn.Linear(
@@ -282,7 +282,9 @@ class OneRelDataset(Dataset):
                 tokens = tokens[: 512]
             text_len = len(tokens)
 
-            token_ids, masks = self.tokenizer.encode(first=root_text)
+            tokens = self.tokenizer(root_text)
+            token_ids = tokens['input_ids']
+            masks = tokens['attention_mask']
             if len(token_ids) > text_len:
                 token_ids = token_ids[:text_len]
                 masks = masks[:text_len]
@@ -317,8 +319,9 @@ class OneRelDataset(Dataset):
                         (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
-                token_ids, segment_ids = self.tokenizer.encode(first=root_text)
-                masks = segment_ids
+                tokens = self.tokenizer(root_text)
+                token_ids = tokens['input_ids']
+                masks = tokens['attention_mask']
                 if len(token_ids) > text_len:
                     token_ids = token_ids[:text_len]
                     masks = masks[:text_len]

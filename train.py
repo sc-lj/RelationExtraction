@@ -13,7 +13,7 @@ from utils import statistics_text_length
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--model_type', default="span4re",
+    parser.add_argument('--model_type', default="one4rel",
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
@@ -212,13 +212,13 @@ def main():
         from OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
         args.max_len = 170
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
+        relation_number = train_dataset.relation_size
+        train_dataloader = DataLoader(train_dataset, collate_fn=lambda x:collate_fn(x,relation_number),
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
         val_dataset = OneRelDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
-            val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+            val_dataset, collate_fn=lambda x:collate_fn(x,relation_number), batch_size=args.batch_size, shuffle=False)
 
-        relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.tag_size = len(TAG2ID)
         args.steps = len(train_dataset)
