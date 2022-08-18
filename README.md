@@ -4,7 +4,7 @@ Official Code For [TDEER: An Efficient Translating Decoding Schema for Joint Ext
 
 ## Overview
 
-TDEER is an efficient model for joint extraction of entities and relations. Unlike the common decoding approach that predicts the relation between subject and object, we adopt the proposed translating decoding schema: subject + relation -> objects, to decode triples. By the proposed translating decoding schema, TDEER can handle the overlapping triple problem effectively and efficiently. The following figure is an illustration of our models.
+TDEER 是一种用于联合提取实体和关系的有效模型。 与预测主客体关系的常见解码方法不同，我们采用提出的翻译解码模式：subject + relation -> objects 来解码三元组。 通过提出的翻译解码模式，TDEER 可以有效地处理重叠三元组问题。
 
 ![overview](docs/TDEER-Overview.png)
 
