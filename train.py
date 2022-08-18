@@ -213,11 +213,12 @@ def main():
         args.max_len = 170
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
         relation_number = train_dataset.relation_size
-        train_dataloader = DataLoader(train_dataset, collate_fn=lambda x:collate_fn(x,relation_number),
+        new_collate_fn = lambda x:collate_fn(x,relation_number)
+        train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
         val_dataset = OneRelDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
-            val_dataset, collate_fn=lambda x:collate_fn(x,relation_number), batch_size=args.batch_size, shuffle=False)
+            val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
 
         args.relation_number = relation_number
         args.tag_size = len(TAG2ID)

@@ -8,7 +8,7 @@ import numpy as np
 import json
 import os
 from torch.utils.data import Dataset
-
+from tqdm import tqdm
 
 TAG2ID = {
     "A": 0,
@@ -57,19 +57,21 @@ class OneRelModel(nn.Module):
 
         # [batch_size, seq_len * seq_len, rel_num * tag_size] -> [batch_size, seq_len, seq_len, rel_num, tag_size]
         output = self.relation_matrix(entity_pairs).reshape(
-            batch_size, seq_len, seq_len, self.config.rel_num, self.config.tag_size)
+            batch_size, seq_len, seq_len, self.config.relation_number, self.config.tag_size)
         return output
 
 
 class OneRelPytochLighting(pl.LightningModule):
     def __init__(self, args) -> None:
         super().__init__()
+        self.args = args
         self.model = OneRelModel(args)
         self.save_hyperparameters(args)
         self.loss = nn.CrossEntropyLoss(reduction="none")
         with open(args.relation, 'r') as f:
             relation = json.load(f)
         self.id2rel = relation[1]
+        self.epoch = 0
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
@@ -194,14 +196,14 @@ class OneRelPytochLighting(pl.LightningModule):
                 h_start_index = heads[i]
                 t_start_index = tails[i]
                 # 如果当前第一个标签为HB-TB
-                if pred_triple_matrix[r_index][h_start_index][t_start_index] == TAG2ID['HB-TB'] and i+1 < pair_numbers:
+                if triple_matrix[r_index][h_start_index][t_start_index] == TAG2ID['HB-TB'] and i+1 < pair_numbers:
                     # 如果下一个标签为HB-TE
                     t_end_index = tails[i+1]
-                    if pred_triple_matrix[r_index][h_start_index][t_end_index] == TAG2ID['HB-TE']:
+                    if triple_matrix[r_index][h_start_index][t_end_index] == TAG2ID['HB-TE']:
                         # 那么就向下找
                         for h_end_index in range(h_start_index, seq_lens):
                             # 向下找到了结尾位置
-                            if pred_triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
+                            if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
 
                                 sub_head, sub_tail = h_start_index, h_end_index
                                 obj_head, obj_tail = t_start_index, t_end_index
@@ -274,7 +276,7 @@ class OneRelDataset(Dataset):
 
     def preprocess_val(self, lines):
         datas = []
-        for line in lines:
+        for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
 
@@ -282,9 +284,9 @@ class OneRelDataset(Dataset):
                 tokens = tokens[: 512]
             text_len = len(tokens)
 
-            tokens = self.tokenizer(root_text)
-            token_ids = tokens['input_ids']
-            masks = tokens['attention_mask']
+            token_output = self.tokenizer(root_text)
+            token_ids = token_output['input_ids']
+            masks = token_output['attention_mask']
             if len(token_ids) > text_len:
                 token_ids = token_ids[:text_len]
                 masks = masks[:text_len]
@@ -298,7 +300,7 @@ class OneRelDataset(Dataset):
 
     def preprocess_train(self, lines):
         datas = []
-        for line in lines:
+        for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
 
@@ -319,9 +321,9 @@ class OneRelDataset(Dataset):
                         (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
-                tokens = self.tokenizer(root_text)
-                token_ids = tokens['input_ids']
-                masks = tokens['attention_mask']
+                token_output = self.tokenizer(root_text)
+                token_ids = token_output['input_ids']
+                masks = token_output['attention_mask']
                 if len(token_ids) > text_len:
                     token_ids = token_ids[:text_len]
                     masks = masks[:text_len]
@@ -342,7 +344,7 @@ class OneRelDataset(Dataset):
 
                 datas.append([token_ids, masks, loss_masks, text_len,
                              triple_matrix, line['triple_list'], tokens, root_text])
-            return datas
+        return datas
 
     def __len__(self):
         return len(self.datas)
