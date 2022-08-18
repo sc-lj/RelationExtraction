@@ -38,3 +38,14 @@ Official Code For [SPAN4RE:Joint Entity and Relation Extraction with Set Predict
 ![overview](docs/SPN4RE-Overview.png)
 
 参数量：142 M
+
+
+# OneRel 🦌
+
+Official Code For [OneRel: Joint Entity and Relation Extraction with One Module in One Step](https://arxiv.org/abs/2203.05412) 
+
+
+![overview](docs/OneRel-Overview.png)
+
+参数量：
+
