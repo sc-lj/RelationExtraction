@@ -1,3 +1,4 @@
+from lib2to3.pgen2 import token
 from pyparsing import line
 import torch.nn as nn
 from transformers.models.bert.modeling_bert import BertModel
@@ -280,7 +281,7 @@ class OneRelDataset(Dataset):
         for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
-
+            tokens = [self.tokenizer.cls_token]+ tokens + [self.tokenizer.sep_token]
             if len(tokens) > 512:
                 tokens = tokens[: 512]
             text_len = len(tokens)
@@ -304,14 +305,13 @@ class OneRelDataset(Dataset):
         for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
-
+            tokens = [self.tokenizer.cls_token]+ tokens + [self.tokenizer.sep_token]
             if len(tokens) > 512:
                 tokens = tokens[: 512]
             text_len = len(tokens)
             s2ro_map = {}
             for triple in line['triple_list']:
-                triple = (self.tokenizer.tokenize(triple[0])[
-                          1:-1], triple[1], self.tokenizer.tokenize(triple[2])[1:-1])
+                triple = (self.tokenizer.tokenize(triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
                 sub_head_idx = find_head_idx(tokens, triple[0])
                 obj_head_idx = find_head_idx(tokens, triple[2])
                 if sub_head_idx != -1 and obj_head_idx != -1:
