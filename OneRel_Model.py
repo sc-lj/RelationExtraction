@@ -10,6 +10,7 @@ import json
 import os
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from utils import rematch
 
 TAG2ID = {
     "A": 0,
@@ -98,13 +99,14 @@ class OneRelPytochLighting(pl.LightningModule):
         triples = batches['triples']
         tokens = batches['tokens']
         texts = batches['texts']
+        offset_maps = batches['offset_mapping']
         # [batch_size, seq_len, seq_len, rel_num, tag_size]
         pred_triple_matrix = self.model(batch_token_ids, batch_attention_masks)
         # [batch_size, seq_len, seq_len, rel_num]->[batch_size, rel_num, seq_len, seq_len]
         pred_triple_matrix = pred_triple_matrix.argmax(
             dim=-1).permute(0, 3, 1, 2)
         pred_triples = self.parse_prediction(
-            pred_triple_matrix, batch_loss_masks, tokens)
+            pred_triple_matrix, batch_loss_masks, texts,offset_maps)
         return pred_triples, triples, texts
 
     def validation_epoch_end(self, outputs):
@@ -181,15 +183,16 @@ class OneRelPytochLighting(pl.LightningModule):
         self.log("sr_acc", real_acc, prog_bar=True)
         self.log("sr_f1", real_f1, prog_bar=True)
 
-    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, tokens):
+    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, texts,offset_maps):
         batch_size, rel_numbers, seq_lens, seq_lens = pred_triple_matrix.shape
         batch_triple_list = []
         for batch in range(batch_size):
+            mapping = rematch(offset_maps[batch])
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
             triple_matrix = triple_matrix*masks
 
-            token = tokens[batch]
+            text = texts[batch]
             relations, heads, tails = np.where(triple_matrix > 0)
             pair_numbers = len(relations)
             triple_list = []
@@ -197,25 +200,25 @@ class OneRelPytochLighting(pl.LightningModule):
                 r_index = relations[i]
                 h_start_index = heads[i]
                 t_start_index = tails[i]
-                # 如果当前第一个标签为HB-TB
+                # 如果当前第一个标签为HB-TB,即subject begin，object begin
                 if triple_matrix[r_index][h_start_index][t_start_index] == TAG2ID['HB-TB'] and i+1 < pair_numbers:
-                    # 如果下一个标签为HB-TE
+                    # 如果下一个标签为HB-TE,即subject begin，object end
                     t_end_index = tails[i+1]
                     if triple_matrix[r_index][h_start_index][t_end_index] == TAG2ID['HB-TE']:
                         # 那么就向下找
                         for h_end_index in range(h_start_index, seq_lens):
-                            # 向下找到了结尾位置
+                            # 向下找到了结尾位置,即subject end，object end
                             if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
 
-                                sub_head, sub_tail = h_start_index, h_end_index
-                                obj_head, obj_tail = t_start_index, t_end_index
-                                sub = token[sub_head: sub_tail+1]
+                                sub_head, sub_tail = mapping[h_start_index][0], mapping[h_end_index][-1]
+                                obj_head, obj_tail = mapping[t_start_index][0], mapping[t_end_index][-1]
+                                sub = text[sub_head: sub_tail+1]
                                 # sub
-                                sub = ' '.join([i.lstrip("##") for i in sub])
+                                # sub = ' '.join([i.lstrip("##") for i in sub])
                                 # sub = ' '.join(sub.split('[unused1]')).strip()
-                                obj = token[obj_head: obj_tail+1]
+                                obj = text[obj_head: obj_tail+1]
                                 # obj
-                                obj = ' '.join([i.lstrip("##") for i in obj])
+                                # obj = ' '.join([i.lstrip("##") for i in obj])
                                 # obj = ' '.join(obj.split('[unused1]')).strip()
                                 rel = self.id2rel[str(int(r_index))]
                                 if len(sub) > 0 and len(obj) > 0:
@@ -286,9 +289,10 @@ class OneRelDataset(Dataset):
                 tokens = tokens[: 512]
             text_len = len(tokens)
 
-            token_output = self.tokenizer(root_text)
+            token_output = self.tokenizer(root_text,return_offsets_mapping=True)
             token_ids = token_output['input_ids']
             masks = token_output['attention_mask']
+            offset_mapping = token_output['offset_mapping']
             if len(token_ids) > text_len:
                 token_ids = token_ids[:text_len]
                 masks = masks[:text_len]
@@ -296,7 +300,7 @@ class OneRelDataset(Dataset):
             masks = np.array(masks)
             loss_masks = masks
             triple_matrix = np.zeros((self.relation_size, text_len, text_len))
-            datas.append([token_ids, masks, loss_masks, text_len,
+            datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
                          triple_matrix, line['triple_list'], tokens, root_text])
         return datas
 
@@ -322,9 +326,10 @@ class OneRelDataset(Dataset):
                         (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
-                token_output = self.tokenizer(root_text)
+                token_output = self.tokenizer(root_text,return_offsets_mapping=True)
                 token_ids = token_output['input_ids']
                 masks = token_output['attention_mask']
+                offset_mapping = token_output['offset_mapping']
                 if len(token_ids) > text_len:
                     token_ids = token_ids[:text_len]
                     masks = masks[:text_len]
@@ -343,7 +348,7 @@ class OneRelDataset(Dataset):
                         triple_matrix[relation][sub_head][obj_tail] = TAG2ID['HB-TE']
                         triple_matrix[relation][sub_tail][obj_tail] = TAG2ID['HE-TE']
 
-                datas.append([token_ids, masks, loss_masks, text_len,
+                datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
                              triple_matrix, line['triple_list'], tokens, root_text])
         return datas
 
@@ -357,7 +362,7 @@ class OneRelDataset(Dataset):
 def collate_fn(batch, rel_num):
     batch = list(filter(lambda x: x is not None, batch))
     batch.sort(key=lambda x: x[3], reverse=True)
-    token_ids, masks, loss_masks, text_len, triple_matrix, triples, tokens, texts = zip(
+    token_ids, masks, loss_masks, text_len,offset_mappings, triple_matrix, triples, tokens, texts = zip(
         *batch)
     cur_batch_len = len(batch)
     max_text_len = max(text_len)
@@ -383,4 +388,5 @@ def collate_fn(batch, rel_num):
             'triple_matrix': batch_triple_matrix,
             'triples': triples,
             'tokens': tokens,
-            "texts": texts}
+            "texts": texts,
+            "offset_map":offset_mappings}

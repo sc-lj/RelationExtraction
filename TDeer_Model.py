@@ -16,7 +16,7 @@ from EMA import FGM
 from loss_func import WarmupLR, TwoStepLR, MLFocalLoss, BCEFocalLoss
 import math
 import os
-
+from utils import rematch
 
 class Linear(nn.Linear):
     def reset_parameters(self) -> None:
@@ -516,16 +516,6 @@ class TDEERPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
         return optim_dict
-
-
-def rematch(offsets):
-    mapping = []
-    for offset in offsets:
-        if offset[0] == 0 and offset[1] == 0:
-            mapping.append([])
-        else:
-            mapping.append([i for i in range(offset[0], offset[1])])
-    return mapping
 
 
 def partial_match(pred_set, gold_set):

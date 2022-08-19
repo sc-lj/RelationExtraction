@@ -11,4 +11,12 @@ def statistics_text_length(filename,tokenizer):
     
     return max_length
 
-    
+def rematch(offsets):
+    mapping = []
+    for offset in offsets:
+        if offset[0] == 0 and offset[1] == 0:
+            mapping.append([])
+        else:
+            mapping.append([i for i in range(offset[0], offset[1])])
+    return mapping
+
