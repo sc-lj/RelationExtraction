@@ -31,7 +31,7 @@ def parser_args():
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
                         help='specify the epoch size')
-    parser.add_argument('--batch_size', default=8, type=int,
+    parser.add_argument('--batch_size', default=6, type=int,
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
@@ -210,7 +210,6 @@ def main():
 
     elif args.model_type == "one4rel":
         from OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
-        args.max_len = 170
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
         relation_number = train_dataset.relation_size
         new_collate_fn = lambda x:collate_fn(x,relation_number)
@@ -249,7 +248,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[1],
+                         gpus=[0],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

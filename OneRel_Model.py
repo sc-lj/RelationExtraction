@@ -70,7 +70,7 @@ class OneRelPytochLighting(pl.LightningModule):
         self.loss = nn.CrossEntropyLoss(reduction="none")
         with open(args.relation, 'r') as f:
             relation = json.load(f)
-        self.id2rel = relation[1]
+        self.id2rel = relation[0]
         self.epoch = 0
 
     def forward(self, *args, **kwargs):
@@ -185,7 +185,7 @@ class OneRelPytochLighting(pl.LightningModule):
         for batch in range(batch_size):
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
-            triple_matrix = triple_matrix*masks
+            # triple_matrix = triple_matrix*masks
 
             token = tokens[batch]
             relations, heads, tails = np.where(triple_matrix > 0)
@@ -291,8 +291,8 @@ class OneRelDataset(Dataset):
                 token_ids = token_ids[:text_len]
                 masks = masks[:text_len]
             token_ids = np.array(token_ids)
-            masks = np.array(masks) + 1
-            loss_masks = np.array(masks) + 1
+            masks = np.array(masks)
+            loss_masks = masks
             triple_matrix = np.zeros((self.relation_size, text_len, text_len))
             datas.append([token_ids, masks, loss_masks, text_len,
                          triple_matrix, line['triple_list'], tokens, root_text])
@@ -329,7 +329,7 @@ class OneRelDataset(Dataset):
                     masks = masks[:text_len]
                 mask_length = len(masks)
                 token_ids = np.array(token_ids)
-                masks = np.array(masks) + 1
+                masks = np.array(masks)
                 loss_masks = np.ones((mask_length, mask_length))
                 triple_matrix = np.zeros(
                     (self.relation_size, text_len, text_len))
