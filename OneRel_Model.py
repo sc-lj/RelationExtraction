@@ -81,7 +81,7 @@ class OneRelPytochLighting(pl.LightningModule):
         batch_attention_masks = batches['mask']
         batch_loss_masks = batches['loss_mask']
         triple_matrix = batches['triple_matrix']
-
+        # [batch_size, seq_len, seq_len, rel_num, tag_size]
         outputs = self.model(batch_token_ids, batch_attention_masks)
         # [batch_size, tag_size, rel_num, seq_len, seq_len]
         outputs = outputs.permute(0, 4, 3, 1, 2)
@@ -97,8 +97,9 @@ class OneRelPytochLighting(pl.LightningModule):
         triples = batches['triples']
         tokens = batches['tokens']
         texts = batches['texts']
+        # [batch_size, seq_len, seq_len, rel_num, tag_size]
         pred_triple_matrix = self.model(batch_token_ids, batch_attention_masks)
-        # [batch_size, seq_len, seq_len, rel_num]
+        # [batch_size, seq_len, seq_len, rel_num]->[batch_size, rel_num, seq_len, seq_len]
         pred_triple_matrix = pred_triple_matrix.argmax(
             dim=-1).permute(0, 3, 1, 2)
         pred_triples = self.parse_prediction(
@@ -185,7 +186,7 @@ class OneRelPytochLighting(pl.LightningModule):
         for batch in range(batch_size):
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
-            # triple_matrix = triple_matrix*masks
+            triple_matrix = triple_matrix*masks
 
             token = tokens[batch]
             relations, heads, tails = np.where(triple_matrix > 0)
@@ -209,12 +210,12 @@ class OneRelPytochLighting(pl.LightningModule):
                                 obj_head, obj_tail = t_start_index, t_end_index
                                 sub = token[sub_head: sub_tail+1]
                                 # sub
-                                sub = ''.join([i.lstrip("##") for i in sub])
-                                sub = ' '.join(sub.split('[unused1]')).strip()
+                                sub = ' '.join([i.lstrip("##") for i in sub])
+                                # sub = ' '.join(sub.split('[unused1]')).strip()
                                 obj = token[obj_head: obj_tail+1]
                                 # obj
-                                obj = ''.join([i.lstrip("##") for i in obj])
-                                obj = ' '.join(obj.split('[unused1]')).strip()
+                                obj = ' '.join([i.lstrip("##") for i in obj])
+                                # obj = ' '.join(obj.split('[unused1]')).strip()
                                 rel = self.id2rel[str(int(r_index))]
                                 if len(sub) > 0 and len(obj) > 0:
                                     triple_list.append((sub, rel, obj))
