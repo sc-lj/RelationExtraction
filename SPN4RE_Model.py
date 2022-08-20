@@ -553,12 +553,18 @@ class Span4REPytochLighting(pl.LightningModule):
                 {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
                 ]
     
-        optimizer = torch.optim.AdamW(self.parameters(), lr=2e-5)
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
-        milestones = list(range(2,50,2))
-        StepLR = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones,gamma=0.85)
+        milestones = list(range(2, 50, 2))
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=milestones, gamma=0.85)
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", verbose = True, patience = 6)
+        # scheduler = torch.optim.lr_scheduler.StepLR(
+        #     optimizer, step_size=self.args.decay_steps, gamma=self.args.decay_rate)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, self.num_step * self.args.rewarm_epoch_num, self.args.T_mult)
         # StepLR = WarmupLR(optimizer,25000)
-        optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
+        optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
     
 
