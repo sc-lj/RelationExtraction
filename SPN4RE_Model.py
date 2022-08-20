@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 import json
 from tqdm import tqdm
-
+from utils import find_head_idx
 
 class DecoderLayer(nn.Module):
     def __init__(self, config):
@@ -589,9 +589,9 @@ class Span4REDataset(Dataset):
                 head_token = self.tokenizer.tokenize(head_entity)
                 tail_token = self.tokenizer.tokenize(tail_entity)
                 relation_id = self.rel2id[triple[1]]
-                head_start_index, head_end_index = self.list_index(head_token, token_sent)
+                head_start_index, head_end_index = find_head_idx(head_token, token_sent)
                 assert head_end_index >= head_start_index
-                tail_start_index, tail_end_index = self.list_index(tail_token, token_sent)
+                tail_start_index, tail_end_index = find_head_idx(tail_token, token_sent)
                 assert tail_end_index >= tail_start_index
                 target["relation"].append(relation_id)
                 target["head_start_index"].append(head_start_index)

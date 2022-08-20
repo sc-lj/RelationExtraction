@@ -20,3 +20,12 @@ def rematch(offsets):
             mapping.append([i for i in range(offset[0], offset[1])])
     return mapping
 
+
+def find_head_idx(source, target):
+    target_len = len(target)
+    for i in range(len(source)):
+        if source[i: i + target_len] == target:
+            return i
+    return -1
+
+    

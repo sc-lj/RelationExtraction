@@ -10,7 +10,7 @@ import json
 import os
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from utils import rematch
+from utils import rematch,find_head_idx
 
 TAG2ID = {
     "A": 0,
@@ -204,28 +204,49 @@ class OneRelPytochLighting(pl.LightningModule):
                 # 如果当前第一个标签为HB-TB,即subject begin，object begin
                 if triple_matrix[r_index][h_start_index][t_start_index] == TAG2ID['HB-TB'] and i+1 < pair_numbers:
                     # 如果下一个标签为HB-TE,即subject begin，object end
+                    find_hb_te= False
                     t_end_index = tails[i+1]
                     if triple_matrix[r_index][h_start_index][t_end_index] == TAG2ID['HB-TE']:
                         # 那么就向下找
+                        find_hb_te = True
+                        find_he_te = False
                         for h_end_index in range(h_start_index, seq_lens):
                             # 向下找到了结尾位置,即subject end，object end
                             if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
                                 sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                 obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-                                # sub_head, sub_tail = mapping[h_start_index][0], mapping[h_end_index][-1]
-                                # obj_head, obj_tail = mapping[t_start_index][0], mapping[t_end_index][-1]
-                                # sub = text[sub_head: sub_tail+1]
-                                # sub
-                                # sub = ' '.join([i.lstrip("##") for i in sub])
-                                # sub = ' '.join(sub.split('[unused1]')).strip()
-                                # obj = text[obj_head: obj_tail+1]
-                                # obj
-                                # obj = ' '.join([i.lstrip("##") for i in obj])
-                                # obj = ' '.join(obj.split('[unused1]')).strip()
+
                                 rel = self.id2rel[str(int(r_index))]
                                 if len(sub) > 0 and len(obj) > 0:
                                     triple_list.append((sub, rel, obj))
+                                    find_he_te = True
                                 break
+                        if not find_he_te:
+                            # subject是单个词
+                            h_end_index = h_start_index
+                            sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                            obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                    # object 是单个词
+                    if not find_hb_te:
+                        t_end_index = t_start_index
+                        find_he_te = False
+                        for h_end_index in range(h_start_index, seq_lens):
+                            # 向下找到了结尾位置,即subject end，object end
+                            if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
+                                sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                                obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+
+                                rel = self.id2rel[str(int(r_index))]
+                                if len(sub) > 0 and len(obj) > 0:
+                                    triple_list.append((sub, rel, obj))
+                                    find_he_te = True
+                                break
+                        if not find_he_te:
+                            # subject是单个词，且object 是单个词
+                            h_end_index = h_start_index
+                            sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                            obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                    
             batch_triple_list.append(triple_list)
         return batch_triple_list
 
@@ -261,14 +282,6 @@ class OneRelPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': StepLR}
         return optim_dict
-
-
-def find_head_idx(source, target):
-    target_len = len(target)
-    for i in range(len(source)):
-        if source[i: i + target_len] == target:
-            return i
-    return -1
 
 
 class OneRelDataset(Dataset):
@@ -311,7 +324,7 @@ class OneRelDataset(Dataset):
             loss_masks = masks
             triple_matrix = np.zeros((self.relation_size, text_len, text_len))
             datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
-                         triple_matrix, line['triple_list'], tokens, root_text])
+                         triple_matrix, self.lower(line['triple_list']), tokens, root_text.lower()])
         return datas
 
     def preprocess_train(self, lines):
@@ -354,13 +367,24 @@ class OneRelDataset(Dataset):
                     sub_tail = s[1]
                     for ro in s2ro_map.get((sub_head, sub_tail), []):
                         obj_head, obj_tail, relation = ro
-                        triple_matrix[relation][sub_head][obj_head] = TAG2ID['HB-TB']
-                        triple_matrix[relation][sub_head][obj_tail] = TAG2ID['HB-TE']
+                        # 赋值顺序不能变，先赋值3，在赋值2，最后赋值1，
+                        # 当obj_tail和obj_head一致时，即object是单个字，该位置赋值为HB-TB，
+                        # 当sub_tail和sub_head一致时，即subject是单个字，该位置赋值为HB-TE，
+                        # 当object和subject都相同时，该位置赋值为HB-TB
                         triple_matrix[relation][sub_tail][obj_tail] = TAG2ID['HE-TE']
+                        triple_matrix[relation][sub_head][obj_tail] = TAG2ID['HB-TE']
+                        triple_matrix[relation][sub_head][obj_head] = TAG2ID['HB-TB'] 
 
                 datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
-                             triple_matrix, line['triple_list'], tokens, root_text])
+                             triple_matrix, self.lower(line['triple_list']), tokens, root_text.lower()])
         return datas
+
+    def lower(self,triples):
+        lower_triples = []
+        for line in triples:
+            line = [l.lower() for l in line]
+            lower_triples.append(line)
+        return lower_triples
 
     def __len__(self):
         return len(self.datas)
