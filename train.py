@@ -31,7 +31,7 @@ def parser_args():
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
                         help='specify the epoch size')
-    parser.add_argument('--batch_size', default=6, type=int,
+    parser.add_argument('--batch_size', default=5, type=int,
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
@@ -214,7 +214,7 @@ def main():
         relation_number = train_dataset.relation_size
         new_collate_fn = lambda x:collate_fn(x,relation_number)
         train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8)
         val_dataset = OneRelDataset(args.val_file, args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)

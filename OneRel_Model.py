@@ -99,14 +99,14 @@ class OneRelPytochLighting(pl.LightningModule):
         triples = batches['triples']
         tokens = batches['tokens']
         texts = batches['texts']
-        offset_maps = batches['offset_mapping']
+        offset_maps = batches['offset_map']
         # [batch_size, seq_len, seq_len, rel_num, tag_size]
         pred_triple_matrix = self.model(batch_token_ids, batch_attention_masks)
         # [batch_size, seq_len, seq_len, rel_num]->[batch_size, rel_num, seq_len, seq_len]
         pred_triple_matrix = pred_triple_matrix.argmax(
             dim=-1).permute(0, 3, 1, 2)
         pred_triples = self.parse_prediction(
-            pred_triple_matrix, batch_loss_masks, texts,offset_maps)
+            pred_triple_matrix, batch_loss_masks, texts,offset_maps,triples)
         return pred_triples, triples, texts
 
     def validation_epoch_end(self, outputs):
@@ -183,11 +183,12 @@ class OneRelPytochLighting(pl.LightningModule):
         self.log("sr_acc", real_acc, prog_bar=True)
         self.log("sr_f1", real_f1, prog_bar=True)
 
-    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, texts,offset_maps):
+    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, texts,offset_maps,triples):
         batch_size, rel_numbers, seq_lens, seq_lens = pred_triple_matrix.shape
         batch_triple_list = []
         for batch in range(batch_size):
             mapping = rematch(offset_maps[batch])
+            triple= triples[batch]
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
             triple_matrix = triple_matrix*masks
@@ -209,14 +210,15 @@ class OneRelPytochLighting(pl.LightningModule):
                         for h_end_index in range(h_start_index, seq_lens):
                             # 向下找到了结尾位置,即subject end，object end
                             if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
-
-                                sub_head, sub_tail = mapping[h_start_index][0], mapping[h_end_index][-1]
-                                obj_head, obj_tail = mapping[t_start_index][0], mapping[t_end_index][-1]
-                                sub = text[sub_head: sub_tail+1]
+                                sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                                obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                # sub_head, sub_tail = mapping[h_start_index][0], mapping[h_end_index][-1]
+                                # obj_head, obj_tail = mapping[t_start_index][0], mapping[t_end_index][-1]
+                                # sub = text[sub_head: sub_tail+1]
                                 # sub
                                 # sub = ' '.join([i.lstrip("##") for i in sub])
                                 # sub = ' '.join(sub.split('[unused1]')).strip()
-                                obj = text[obj_head: obj_tail+1]
+                                # obj = text[obj_head: obj_tail+1]
                                 # obj
                                 # obj = ' '.join([i.lstrip("##") for i in obj])
                                 # obj = ' '.join(obj.split('[unused1]')).strip()
@@ -226,6 +228,14 @@ class OneRelPytochLighting(pl.LightningModule):
                                 break
             batch_triple_list.append(triple_list)
         return batch_triple_list
+
+    def decode_entity(self, text: str, mapping, start: int, end: int):
+        s = mapping[start]
+        e = mapping[end]
+        s = 0 if not s else s[0]
+        e = len(text) - 1 if not e else e[-1]
+        entity = text[s: e + 1]
+        return entity
 
     def configure_optimizers(self):
         """[配置优化参数]
