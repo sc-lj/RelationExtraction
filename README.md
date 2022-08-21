@@ -41,7 +41,7 @@ Official Code For [SPAN4RE:Joint Entity and Relation Extraction with Set Predict
 
 
 # OneRel 🦌
-
+该模型没有源码，这是根据论文复现出来的。但是其中还有很多疑惑之处。比如，如何让模型实现row(行)一定表示subject(head)，让columns(列)表示object(tail)呢？
 Official Code For [OneRel: Joint Entity and Relation Extraction with One Module in One Step](https://arxiv.org/abs/2203.05412) 
 
 

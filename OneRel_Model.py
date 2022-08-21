@@ -201,6 +201,7 @@ class OneRelPytochLighting(pl.LightningModule):
                 rel_triple = rel_triple_matrix[(heads, tails)]
                 if pair_numbers>0:
                     print(r_index,heads, tails,rel_triple)
+                rel = self.id2rel[str(int(r_index))]
                 for i in range(pair_numbers):
                     h_start_index = heads[i]
                     t_start_index = tails[i]
@@ -220,7 +221,6 @@ class OneRelPytochLighting(pl.LightningModule):
                                         sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                         obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
 
-                                        rel = self.id2rel[str(int(r_index))]
                                         if len(sub) > 0 and len(obj) > 0:
                                             triple_list.append((sub, rel, obj))
                                             find_he_te = True
@@ -230,6 +230,8 @@ class OneRelPytochLighting(pl.LightningModule):
                                     h_end_index = h_start_index
                                     sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                     obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                    if len(sub) > 0 and len(obj) > 0:
+                                        triple_list.append((sub, rel, obj))
                         # object 是单个词
                         if not find_hb_te:
                             t_end_index = t_start_index
@@ -239,8 +241,6 @@ class OneRelPytochLighting(pl.LightningModule):
                                 if rel_triple_matrix[h_end_index][t_end_index] == TAG2ID['HE-TE']:
                                     sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                     obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-
-                                    rel = self.id2rel[str(int(r_index))]
                                     if len(sub) > 0 and len(obj) > 0:
                                         triple_list.append((sub, rel, obj))
                                         find_he_te = True
@@ -250,7 +250,8 @@ class OneRelPytochLighting(pl.LightningModule):
                                 h_end_index = h_start_index
                                 sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                 obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-                        
+                                if len(sub) > 0 and len(obj) > 0:
+                                    triple_list.append((sub, rel, obj))
             batch_triple_list.append(triple_list)
         return batch_triple_list
 
