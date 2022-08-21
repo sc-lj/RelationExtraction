@@ -345,15 +345,19 @@ class MultiCEFocalLoss(nn.Module):
         alpha = self.alpha.to(preds.device)        
         preds_softmax = F.softmax(preds, dim=1) # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)        
         preds_logsoft = torch.log((preds_softmax-self.elipson).abs())
-        preds_softmax = preds_softmax.gather(1,labels.view(-1,1))   # 这部分实现nll_loss ( crossempty = log_softmax + nll )        
-        preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))        
-        alpha = alpha.gather(0,labels.view(-1))        
+        # preds_softmax = preds_softmax.gather(1,labels.view(-1,1))   # 这部分实现nll_loss ( crossempty = log_softmax + nll )        
+        # preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))    
+
+        preds_softmax = preds_softmax.gather(1,labels.unsqueeze(1)).squeeze(1)   # 这部分实现nll_loss ( crossempty = log_softmax + nll )        
+        preds_logsoft = preds_logsoft.gather(1,labels.unsqueeze(1)).squeeze(1)  
+
+        alpha = alpha.gather(0,labels.view(-1)).reshape(labels.shape)   
         loss = -torch.mul(torch.pow((1-preds_softmax), self.gamma), preds_logsoft)  # torch.pow((1-preds_softmax), self.gamma) 为focal loss中 (1-pt)**γ
-        loss = torch.mul(alpha, loss.t())        
-        if self.size_average:        
-            loss = loss.mean()        
-        else:            
-            loss = loss.sum()        
+        loss = torch.mul(alpha, loss)        
+        # if self.size_average:        
+        #     loss = loss.mean()        
+        # else:            
+        #     loss = loss.sum()        
         return loss
 
 class FocalLoss(nn.Module):
