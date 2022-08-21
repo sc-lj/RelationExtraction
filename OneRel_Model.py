@@ -192,61 +192,65 @@ class OneRelPytochLighting(pl.LightningModule):
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
             triple_matrix = triple_matrix*masks
-
             text = texts[batch]
-            relations, heads, tails = np.where(triple_matrix > 0)
-            pair_numbers = len(relations)
             triple_list = []
-            for i in range(pair_numbers):
-                r_index = relations[i]
-                h_start_index = heads[i]
-                t_start_index = tails[i]
-                # 如果当前第一个标签为HB-TB,即subject begin，object begin
-                if triple_matrix[r_index][h_start_index][t_start_index] == TAG2ID['HB-TB'] and i+1 < pair_numbers:
-                    # 如果下一个标签为HB-TE,即subject begin，object end
-                    find_hb_te= False
-                    t_end_index = tails[i+1]
-                    if triple_matrix[r_index][h_start_index][t_end_index] == TAG2ID['HB-TE']:
-                        # 那么就向下找
-                        find_hb_te = True
-                        find_he_te = False
-                        for h_end_index in range(h_start_index, seq_lens):
-                            # 向下找到了结尾位置,即subject end，object end
-                            if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
+            for r_index in range(rel_numbers):
+                rel_triple_matrix = triple_matrix[r_index]
+                heads, tails = np.where(rel_triple_matrix > 0)
+                pair_numbers = len(heads)
+                rel_triple = rel_triple_matrix[(heads, tails)]
+                if pair_numbers>0:
+                    print(r_index,heads, tails,rel_triple)
+                for i in range(pair_numbers):
+                    h_start_index = heads[i]
+                    t_start_index = tails[i]
+                    # 如果当前第一个标签为HB-TB,即subject begin，object begin
+                    if rel_triple_matrix[h_start_index][t_start_index] == TAG2ID['HB-TB']:
+                        # 如果下一个标签为HB-TE,即subject begin，object end
+                        find_hb_te= False
+                        if i+1 < pair_numbers:
+                            t_end_index = tails[i+1]
+                            if rel_triple_matrix[h_start_index][t_end_index] == TAG2ID['HB-TE']:
+                                # 那么就向下找
+                                find_hb_te = True
+                                find_he_te = False
+                                for h_end_index in range(h_start_index, seq_lens):
+                                    # 向下找到了结尾位置,即subject end，object end
+                                    if rel_triple_matrix[h_end_index][t_end_index] == TAG2ID['HE-TE']:
+                                        sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                                        obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+
+                                        rel = self.id2rel[str(int(r_index))]
+                                        if len(sub) > 0 and len(obj) > 0:
+                                            triple_list.append((sub, rel, obj))
+                                            find_he_te = True
+                                        # break
+                                if not find_he_te:
+                                    # subject是单个词
+                                    h_end_index = h_start_index
+                                    sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                                    obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                        # object 是单个词
+                        if not find_hb_te:
+                            t_end_index = t_start_index
+                            find_he_te = False
+                            for h_end_index in range(h_start_index, seq_lens):
+                                # 向下找到了结尾位置,即subject end，object end
+                                if rel_triple_matrix[h_end_index][t_end_index] == TAG2ID['HE-TE']:
+                                    sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
+                                    obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+
+                                    rel = self.id2rel[str(int(r_index))]
+                                    if len(sub) > 0 and len(obj) > 0:
+                                        triple_list.append((sub, rel, obj))
+                                        find_he_te = True
+                                    # break
+                            if not find_he_te:
+                                # subject是单个词，且object 是单个词
+                                h_end_index = h_start_index
                                 sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
                                 obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-
-                                rel = self.id2rel[str(int(r_index))]
-                                if len(sub) > 0 and len(obj) > 0:
-                                    triple_list.append((sub, rel, obj))
-                                    find_he_te = True
-                                break
-                        if not find_he_te:
-                            # subject是单个词
-                            h_end_index = h_start_index
-                            sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                            obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-                    # object 是单个词
-                    if not find_hb_te:
-                        t_end_index = t_start_index
-                        find_he_te = False
-                        for h_end_index in range(h_start_index, seq_lens):
-                            # 向下找到了结尾位置,即subject end，object end
-                            if triple_matrix[r_index][h_end_index][t_end_index] == TAG2ID['HE-TE']:
-                                sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                                obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-
-                                rel = self.id2rel[str(int(r_index))]
-                                if len(sub) > 0 and len(obj) > 0:
-                                    triple_list.append((sub, rel, obj))
-                                    find_he_te = True
-                                break
-                        if not find_he_te:
-                            # subject是单个词，且object 是单个词
-                            h_end_index = h_start_index
-                            sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                            obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
-                    
+                        
             batch_triple_list.append(triple_list)
         return batch_triple_list
 
@@ -345,8 +349,10 @@ class OneRelDataset(Dataset):
             s2ro_map = {}
             for triple in line['triple_list']:
                 triple = (self.tokenizer.tokenize(triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
-                sub_head_idx = find_head_idx(tokens, triple[0])
-                obj_head_idx = find_head_idx(tokens, triple[2])
+                sub_head_idx = find_head_idx(tokens, triple[0],0)
+                obj_head_idx = find_head_idx(tokens, triple[2],sub_head_idx + len(triple[0]))
+                if obj_head_idx == -1:
+                    obj_head_idx = find_head_idx(tokens, triple[2],0)
                 if sub_head_idx != -1 and obj_head_idx != -1:
                     sub = (sub_head_idx, sub_head_idx + len(triple[0]) - 1)
                     if sub not in s2ro_map:

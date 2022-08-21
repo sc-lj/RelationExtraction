@@ -21,11 +21,10 @@ def rematch(offsets):
     return mapping
 
 
-def find_head_idx(source, target):
+def find_head_idx(source, target,sub_index):
     target_len = len(target)
-    for i in range(len(source)):
+    for i in range(sub_index,len(source)):
         if source[i: i + target_len] == target:
             return i
     return -1
 
-    
