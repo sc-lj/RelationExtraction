@@ -12,11 +12,11 @@ from transformers import DataCollatorWithPadding
 import argparse
 import pytorch_lightning as pl
 import copy
-from Callback import FGM
+from utils.Callback import FGM
 from loss_func import WarmupLR, TwoStepLR, MLFocalLoss, BCEFocalLoss
 import math
 import os
-from utils import rematch,find_head_idx
+from utils.utils import rematch,find_head_idx
 
 class Linear(nn.Linear):
     def reset_parameters(self) -> None:

@@ -8,9 +8,9 @@ from transformers import BertPreTrainedModel, BertModel,BertTokenizerFast
 import random
 import numpy as np
 from collections import defaultdict
-from PRGC_metric import tag_mapping_corres
+from PRGC.PRGC_metric import tag_mapping_corres
 from tqdm import tqdm
-from utils import find_head_idx
+from utils.utils import find_head_idx
 
 
 Label2IdxSub = {"B-H": 1, "I-H": 2, "O": 0}

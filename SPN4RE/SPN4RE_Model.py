@@ -14,13 +14,13 @@ import torch.nn as nn
 import torch
 from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
 import torch.nn.functional as F
-from SPN4RE_utils import generate_triple,formulate_gold
+from SPN4RE.SPN4RE_utils import generate_triple,formulate_gold
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 import json
 from tqdm import tqdm
-from utils import find_head_idx
+from utils.utils import find_head_idx
 
 class DecoderLayer(nn.Module):
     def __init__(self, config):

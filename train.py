@@ -3,12 +3,12 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from pytorch_lightning.plugins import DDPPlugin
-from Callback import EMACallBack
+from utils.Callback import EMACallBack
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import json
 import os
-from utils import statistics_text_length
+from utils.utils import statistics_text_length
 
 
 def parser_args():
@@ -121,7 +121,7 @@ def parser_args():
 def main():
     args = parser_args()
     if args.model_type == "tdeer":
-        from TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
+        from TDeer.TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
         train_dataset = TDEERDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
@@ -135,8 +135,8 @@ def main():
         model = TDEERPytochLighting(args)
 
     elif args.model_type == "tplinker":
-        from TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
-        from TPlinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
+        from TPlinker.TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
+        from TPlinker.TPlinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
@@ -171,7 +171,7 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        from PRGC_Model import PRGCDataset, PRGCPytochLighting, collate_fn_test, collate_fn_train
+        from PRGC.PRGC_Model import PRGCDataset, PRGCPytochLighting, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
@@ -190,7 +190,7 @@ def main():
         model = PRGCPytochLighting(args)
 
     elif args.model_type == "span4re":
-        from SPN4RE_Model import Span4REDataset, Span4REPytochLighting, collate_fn
+        from SPN4RE.SPN4RE_Model import Span4REDataset, Span4REPytochLighting, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
@@ -209,7 +209,7 @@ def main():
         model = Span4REPytochLighting(args)
 
     elif args.model_type == "one4rel":
-        from OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
+        from OneRel.OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
         relation_number = train_dataset.relation_size
         new_collate_fn = lambda x:collate_fn(x,relation_number)

@@ -17,7 +17,7 @@ import math
 from torch.nn import Parameter
 import re
 import os
-from TPlinker_utils import HandshakingTaggingScheme, MetricsCalculator, DataMaker4Bert
+from TPlinker.TPlinker_utils import HandshakingTaggingScheme, MetricsCalculator, DataMaker4Bert
 
 
 class LayerNorm(nn.Module):
