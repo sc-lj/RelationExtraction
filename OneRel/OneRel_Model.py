@@ -11,7 +11,7 @@ import os
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from utils.utils import rematch,find_head_idx
-from loss_func import MultiCEFocalLoss
+from utils.loss_func import MultiCEFocalLoss
 
 TAG2ID = {
     "A": 0,

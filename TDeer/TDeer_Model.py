@@ -13,7 +13,7 @@ import argparse
 import pytorch_lightning as pl
 import copy
 from utils.Callback import FGM
-from loss_func import WarmupLR, TwoStepLR, MLFocalLoss, BCEFocalLoss
+from utils.loss_func import WarmupLR, TwoStepLR, MLFocalLoss, BCEFocalLoss
 import math
 import os
 from utils.utils import rematch,find_head_idx
