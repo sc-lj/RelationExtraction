@@ -32,7 +32,7 @@ Official Code For [TPLinker: Single-stage Joint Extraction of Entities and Relat
 
 # SPN4RE 🦌
 
-Official Code For [SPAN4RE:Joint Entity and Relation Extraction with Set Prediction Networks](https://arxiv.org/abs/2011.01675) 
+Official Code For [SPN4RE:Joint Entity and Relation Extraction with Set Prediction Networks](https://arxiv.org/abs/2011.01675) 
 
 
 ![overview](docs/SPN4RE-Overview.png)
