@@ -8,11 +8,10 @@ from transformers import BertPreTrainedModel, BertModel,BertTokenizerFast
 import random
 import numpy as np
 from collections import defaultdict
-import functools
-from multiprocessing import Pool
-from itertools import chain
 from PRGC_metric import tag_mapping_corres
 from tqdm import tqdm
+from utils import find_head_idx
+
 
 Label2IdxSub = {"B-H": 1, "I-H": 2, "O": 0}
 Label2IdxObj = {"B-T": 1, "I-T": 2, "O": 0}
@@ -527,16 +526,12 @@ class PRGCDataset(Dataset):
     def _get_so_head(self,en_pair, tokenizer, text_tokens):
         sub = tokenizer.tokenize(en_pair[0])
         obj = tokenizer.tokenize(en_pair[1])
-        sub_head = find_head_idx(source=text_tokens, target=sub)
-        if sub == obj:
-            obj_head = find_head_idx(source=text_tokens[sub_head + len(sub):], target=obj)
-            if obj_head != -1:
-                obj_head += sub_head + len(sub)
-            else:
-                obj_head = sub_head
-        else:
-            obj_head = find_head_idx(source=text_tokens, target=obj)
-        return sub_head, obj_head, sub, obj
+        subj_head_idx = find_head_idx(text_tokens, sub,0)
+        subj_tail_idx = subj_head_idx + len(sub) - 1
+        obj_head_idx = find_head_idx(text_tokens, obj,subj_tail_idx+1)
+        if obj_head_idx == -1:
+            obj_head_idx = find_head_idx(text_tokens, obj,0)
+        return subj_head_idx, obj_head_idx, sub, obj
 
     def __len__(self):
         return len(self.datas)
@@ -560,14 +555,6 @@ class InputFeatures(object):
         self.relation = relation
         self.triples = triples
         self.rel_tag = rel_tag
-
-
-def find_head_idx(source, target):
-    target_len = len(target)
-    for i in range(len(source)):
-        if source[i: i + target_len] == target:
-            return i
-    return -1
 
 
 def collate_fn_train(features):

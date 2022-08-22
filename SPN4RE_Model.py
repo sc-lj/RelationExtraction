@@ -595,9 +595,14 @@ class Span4REDataset(Dataset):
                 head_token = self.tokenizer.tokenize(head_entity)
                 tail_token = self.tokenizer.tokenize(tail_entity)
                 relation_id = self.rel2id[triple[1]]
-                head_start_index, head_end_index = find_head_idx(head_token, token_sent)
+
+                head_start_index = find_head_idx(token_sent,head_token,0)
+                head_end_index = head_start_index + len(head_token)- 1
                 assert head_end_index >= head_start_index
-                tail_start_index, tail_end_index = find_head_idx(tail_token, token_sent)
+                tail_start_index = find_head_idx(token_sent, tail_token,head_end_index+1)
+                if tail_start_index == -1:
+                    tail_start_index = find_head_idx(token_sent, tail_token,0)
+                tail_end_index = tail_start_index + len(tail_token) - 1
                 assert tail_end_index >= tail_start_index
                 target["relation"].append(relation_id)
                 target["head_start_index"].append(head_start_index)
@@ -613,28 +618,6 @@ class Span4REDataset(Dataset):
     
     def __getitem__(self, index):
         return self.datas[index]
-
-    def list_index(self,span_token_list: list, token_list: list) -> list:
-        """
-        Args:
-            span_token_list (list): subject,object token的列表
-            token_list (list): 文本的token列表
-        Returns:
-            list: _description_
-        """
-        start = [i for i, x in enumerate(token_list) if x == span_token_list[0]]
-        end = [i for i, x in enumerate(token_list) if x == span_token_list[-1]]
-        if len(start) == 1 and len(end) == 1:
-            return start[0], end[0]
-        else:
-            # 如果找到多个与subject或者object token匹配的字段，返回第一个
-            for i in start:
-                for j in end:
-                    if i <= j:
-                        if token_list[i:j+1] == span_token_list:
-                            index = (i, j)
-                            break
-            return index[0], index[1]
     
     def remove_accents(self,text: str) -> str:
         accents_translation_table = str.maketrans(

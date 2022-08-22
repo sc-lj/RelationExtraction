@@ -578,9 +578,11 @@ class TDEERDataset(Dataset):
                 rel_idx = self.rel2id[rel]
                 subj_tokened = self.tokenizer.encode(subj)
                 obj_tokened = self.tokenizer.encode(obj)
-                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1])
+                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1],0)
                 subj_tail_idx = subj_head_idx + len(subj_tokened[1:-1]) - 1
-                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1])
+                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],subj_tail_idx+1)
+                if obj_head_idx == -1:
+                    obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],0)
                 obj_tail_idx = obj_head_idx + len(obj_tokened[1:-1]) - 1
                 if subj_head_idx == -1 or obj_head_idx == -1:
                     continue
@@ -634,9 +636,11 @@ class TDEERDataset(Dataset):
                 rel_idx = self.rel2id[rel]
                 subj_tokened = self.tokenizer.encode(subj)
                 obj_tokened = self.tokenizer.encode(obj)
-                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1])
+                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1],0)
                 subj_tail_idx = subj_head_idx + len(subj_tokened[1:-1]) - 1
-                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1])
+                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],subj_tail_idx+1)
+                if obj_head_idx == -1:
+                    obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],0)
                 obj_tail_idx = obj_head_idx + len(obj_tokened[1:-1]) - 1
                 if subj_head_idx == -1 or obj_head_idx == -1:
                     continue
