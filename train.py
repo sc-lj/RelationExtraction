@@ -3,7 +3,7 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from pytorch_lightning.plugins import DDPPlugin
-from EMA import EMACallBack
+from Callback import EMACallBack
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import json

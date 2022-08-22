@@ -12,7 +12,7 @@ from transformers import DataCollatorWithPadding
 import argparse
 import pytorch_lightning as pl
 import copy
-from EMA import FGM
+from Callback import FGM
 from loss_func import WarmupLR, TwoStepLR, MLFocalLoss, BCEFocalLoss
 import math
 import os
