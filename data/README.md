@@ -1,3 +1,3 @@
-We follow [weizhepei/CasRel](https://github.com/weizhepei/CasRel) to prepare datas.
+文档级关系抽取的数据集:
+glre data can be downloaded from [figshare](https://doi.org/10.6084/m9.figshare.12385979).
 
-Please use `git-lfs` to download the preprocessed data.

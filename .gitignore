@@ -5,3 +5,4 @@ __pycache__
 lightning_logs
 event_extract*
 bertbaseuncased
+GLREDATA.zip
