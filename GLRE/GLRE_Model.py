@@ -15,6 +15,7 @@ from Attention import *
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from torch.autograd import Variable
+from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
@@ -232,6 +233,8 @@ class GLREModule(nn.Module):
         self.lstm_encoder = args.lstm_encoder
         self.more_lstm = args.more_lstm
 
+        self.dataset = args.dataset
+
     def encoding_layer(self, word_vec, seq_lens):
         """
         Encoder Layer -> Encode sequences using BiLSTM.
@@ -344,6 +347,26 @@ class GLREModule(nn.Module):
         nodes = torch.index_select(nodes, 0, tmp2)
         return nodes
 
+    @staticmethod
+    def select_pairs(nodes_info, idx, dataset='docred'):
+        """
+        Select (entity node) pairs for classification based on input parameter restrictions (i.e. their entity type).
+        """
+        sel = torch.zeros(nodes_info.size(0), nodes_info.size(1), nodes_info.size(1)).to(nodes_info.device)
+        a_ = nodes_info[..., 0][:, idx[0]]
+        b_ = nodes_info[..., 0][:, idx[1]]
+        # 针对不同数据
+        if dataset == 'cdr':
+            c_ = nodes_info[..., 1][:, idx[0]]
+            d_ = nodes_info[..., 1][:, idx[1]]
+            condition1 = torch.eq(a_, 0) & torch.eq(b_, 0) & torch.ne(idx[0], idx[1])  # needs to be an entity node (id=0)
+            condition2 = torch.eq(c_, 1) & torch.eq(d_, 2)  # h=medicine, t=disease
+            sel = torch.where(condition1 & condition2, torch.ones_like(sel), sel)
+        else:
+            condition1 = torch.eq(a_, 0) & torch.eq(b_, 0) & torch.ne(idx[0], idx[1])
+            sel = torch.where(condition1, torch.ones_like(sel), sel)
+        return sel.nonzero().unbind(dim=1), sel.nonzero()[:, 0]
+
     def forward(self, batch):
         context_output = self.pretrain_lm(batch['bert_token'], attention_mask=batch['bert_mask'])[0]
 
@@ -409,11 +432,7 @@ class GLREModule(nn.Module):
             graph_select = self.out_mlp(graph_select)
         graph = self.classifier(graph_select)
 
-        loss, stats, preds, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batch['relations'][select],
-                                                                                      batch['multi_relations'][select])
-
-        return loss, stats, preds, select, pred_pairs, multi_truth, mask, truth
-
+        return graph,select
 
 class GLREModuelPytochLighting(pl.LightningModule):
     def __init__(self, args):
@@ -489,11 +508,10 @@ class GLREModuelPytochLighting(pl.LightningModule):
         output['tn'] += [stats['tn'].to('cpu').data.numpy()]
         output['preds'] += [predictions.to('cpu').data.numpy()]
 
-        if True:
-            test_infos = batches['info'][select[0].to('cpu').data.numpy(),
-                                        select[1].to('cpu').data.numpy(),
-                                        select[2].to('cpu').data.numpy()][mask.to('cpu').data.numpy()]
-            test_info += [test_infos]
+        test_infos = batches['info'][select[0].to('cpu').data.numpy(),
+                                    select[1].to('cpu').data.numpy(),
+                                    select[2].to('cpu').data.numpy()][mask.to('cpu').data.numpy()]
+        test_info += [test_infos]
 
         pred_pairs = pred_pairs.data.cpu().numpy()
         multi_truths = multi_truths.data.cpu().numpy()
@@ -510,5 +528,33 @@ class GLREModuelPytochLighting(pl.LightningModule):
                                     len(test_info) - 1, pair_id))
 
 
+    def configure_optimizers(self):
+        """[配置优化参数]
+        """
+        param_optimizer = list(self.named_parameters())
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8,'lr':2e-5},
+                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0,'lr':2e-5},
+                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8,'lr':2e-4},
+                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
+                ]
+    
+        # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
+        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
+        # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
+        milestones = list(range(2, 50, 2))
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(
+            optimizer, milestones=milestones, gamma=0.85)
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, "min", verbose = True, patience = 6)
+        # scheduler = torch.optim.lr_scheduler.StepLR(
+        #     optimizer, step_size=self.args.decay_steps, gamma=self.args.decay_rate)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, self.num_step * self.args.rewarm_epoch_num, self.args.T_mult)
+        # StepLR = WarmupLR(optimizer,25000)
+        optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
+        return optim_dict
 
+class GLREDataset(Dataset):
+    def __init__(self,filename, args, is_training=True) -> None:
+        super().__init__()
 
