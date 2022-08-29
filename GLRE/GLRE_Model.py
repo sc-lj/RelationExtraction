@@ -572,7 +572,7 @@ class GLREDataset(Dataset):
         self.index2rel = {v: k for k, v in self.rel2index.items()}
         self.n_rel, self.rel2count = len(self.rel2index.keys()), {}
 
-        self.documents, self.entities, self.pairs, self.pronouns_mentions = OrderedDict(), OrderedDict(), OrderedDict(), OrderedDict()
+        self.documents, self.entities, self.pairs = OrderedDict(), OrderedDict(), OrderedDict()
 
         # 将距离分为9组
         self.dis2idx_dir = np.zeros((800), dtype='int64') # distance feature
@@ -793,6 +793,30 @@ class GLREDataset(Dataset):
     
             document_meta.append(text_meta)
 
+        for did, p in self.pairs.items():
+            for k, vs in p.items():
+                for v in vs:
+                    self.add_relation(v.type)
+        
+        self.find_max_length(lengths)
+        
         return lengths, sents, entities_cor_id
 
+    def find_max_length(self, length):
+        """ Maximum distance between words """
+        for l in length:
+            if l-1 > self.max_distance:
+                self.max_distance = l-1
 
+
+    def add_relation(self, rel):
+        assert rel in self.rel2index
+        if rel not in self.rel2index:
+            self.rel2index[rel] = self.n_rel
+            self.rel2count[rel] = 1
+            self.index2rel[self.n_rel] = rel
+            self.n_rel += 1
+        else:
+            if rel not in self.rel2count:
+                self.rel2count[rel] = 0
+            self.rel2count[rel] += 1
