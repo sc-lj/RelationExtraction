@@ -3,6 +3,35 @@ from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence,pad_sequence
 from torch.autograd import Variable
 
+
+def get_distance(e1_sentNo, e2_sentNo):
+    distance = 10000
+    for e1 in e1_sentNo:
+        for e2 in e2_sentNo:
+            distance = min(distance, abs(int(e2) - int(e1)))
+    return distance
+
+
+def find_cross(head, tail):
+    """检查两个是否在同一个句子中
+    Args:
+        head (_type_): _description_
+        tail (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    non_cross = False
+    for m1 in head:
+        for m2 in tail:
+            if m1['sent_id'] == m2['sent_id']:
+                non_cross = True
+    if non_cross:
+        return 'NON-CROSS'
+    else:
+        return 'CROSS'
+
+
 def split_n_pad(nodes, section, pad=0, return_mask=False):
     """
     split tensor and pad
