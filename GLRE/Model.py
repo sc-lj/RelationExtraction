@@ -8,18 +8,14 @@
 @Desc    :   文档级关系抽取算法
 '''
 
-import os
-import json
+
 import torch
 import torch.nn as nn 
-from GLRE.GLRE_utils import *
 from Attention import *
+from GLRE.utils import *
 import pytorch_lightning as pl
 import torch.nn.functional as F
-from collections import OrderedDict
-from collections import namedtuple
 from torch.autograd import Variable
-from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 from transformers.models.bert.modeling_bert import BertModel
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
@@ -371,13 +367,13 @@ class GLREModule(nn.Module):
             sel = torch.where(condition1, torch.ones_like(sel), sel)
         return sel.nonzero().unbind(dim=1), sel.nonzero()[:, 0]
 
-    def forward(self, batch):
-        context_output = self.pretrain_lm(batch['bert_token'], attention_mask=batch['bert_mask'])[0]
+    def forward(self, bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
+        context_output = self.pretrain_lm(bert_token, attention_mask=bert_mask)[0]
 
         context_output = [layer[starts.nonzero().squeeze(1)] for layer, starts in
-                            zip(context_output, batch['bert_starts'])]
+                            zip(context_output, bert_starts)]
         context_output_pad = []
-        for output, word_len in zip(context_output, batch['section'][:, 3]):
+        for output, word_len in zip(context_output, section[:, 3]):
             if output.size(0) < word_len:
                 padding = Variable(output.data.new(1, 1).zero_())
                 output = torch.cat([output, padding.expand(word_len - output.size(0), output.size(1))], dim=0)
@@ -386,19 +382,19 @@ class GLREModule(nn.Module):
         context_output = torch.cat(context_output_pad, dim=0)
 
         if self.more_lstm:
-            context_output = self.encoding_layer(context_output, batch['section'][:, 3])
-            context_output = rm_pad(context_output, batch['section'][:, 3])
+            context_output = self.encoding_layer(context_output, section[:, 3])
+            context_output = rm_pad(context_output, section[:, 3])
         encoded_seq = self.pretrain_l_m_linear_re(context_output)
 
-        encoded_seq = split_n_pad(encoded_seq, batch['word_sec'])
+        encoded_seq = split_n_pad(encoded_seq, word_sec)
 
         # Graph
-        nodes = self.node_layer(encoded_seq, batch['entities'], batch['word_sec'])
+        nodes = self.node_layer(encoded_seq, entities, word_sec)
 
         init_nodes = nodes
-        nodes, nodes_info = self.graph_layer(nodes, batch['entities'], batch['section'][:, 0:3])
-        nodes, _ = self.rgcn_layer(nodes, batch['rgcn_adjacency'], batch['section'][:, 0:3])
-        entity_size = batch['section'][:, 0].max()
+        nodes, nodes_info = self.graph_layer(nodes, entities, section[:, 0:3])
+        nodes, _ = self.rgcn_layer(nodes, rgcn_adjacency,section[:, 0:3])
+        entity_size = section[:, 0].max()
         r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(self.device),
                                       torch.arange(entity_size).to(self.device))
         relation_rep_h = nodes[:, r_idx]
@@ -406,7 +402,7 @@ class GLREModule(nn.Module):
         # relation_rep = self.rgcn_linear_re(relation_rep)  # global node rep
 
         if self.local_rep:
-            entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(batch['entities'], batch['section'], init_nodes, nodes)
+            entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(entities, section, init_nodes, nodes)
             if not self.global_rep:
                 relation_rep_h = entitys_pair_rep_h
                 relation_rep_t = entitys_pair_rep_t
@@ -415,8 +411,8 @@ class GLREModule(nn.Module):
                 relation_rep_t = torch.cat((relation_rep_t, entitys_pair_rep_t), dim=-1)
 
         if self.finaldist:
-            dis_h_2_t = batch['distances_dir'] + 10
-            dis_t_2_h = -batch['distances_dir'] + 10
+            dis_h_2_t = distances_dir+ 10
+            dis_t_2_h = -distances_dir + 10
             dist_dir_h_t_vec = self.dist_embed_dir(dis_h_2_t)
             dist_dir_t_h_vec = self.dist_embed_dir(dis_t_2_h)
             relation_rep_h = torch.cat((relation_rep_h, dist_dir_h_t_vec), dim=-1)
@@ -424,7 +420,7 @@ class GLREModule(nn.Module):
         graph_select = torch.cat((relation_rep_h, relation_rep_t), dim=-1)
 
         if self.context_att:
-            relation_mask = torch.sum(torch.ne(batch['multi_relations'], 0), -1).gt(0)
+            relation_mask = torch.sum(torch.ne(multi_relations, 0), -1).gt(0)
             graph_select = self.self_att(graph_select, graph_select, relation_mask)
 
         # Classification
@@ -443,6 +439,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
         super().__init__()
         self.model = GLREModule(args)
         self.rel_size = args.rel_size
+        self.ignore_label = ''
     
     def count_predictions(self, y, t):
         """
@@ -489,13 +486,19 @@ class GLREModuelPytochLighting(pl.LightningModule):
         return loss, pred_pairs, multi_truth, multi_mask, truth
 
     def training_step(self, batches,batch_idx):
-        graph ,select = self.model(batches)
+        bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
+        section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
+        rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
         loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
                                                                                       batches['multi_relations'][select])
         return loss
 
     def validation_step(self, batches,batch_idx):
-        graph ,select = self.model(batches)
+        bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
+        section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
+        rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
         loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
                                                                                       batches['multi_relations'][select])
         pred_pairs = torch.sigmoid(pred_pairs)
@@ -558,265 +561,4 @@ class GLREModuelPytochLighting(pl.LightningModule):
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
 
-class GLREDataset(Dataset):
-    def __init__(self,filename, args, is_training=True) -> None:
-        super().__init__()
 
-        # 实体id
-        self.type2index = json.load(open(os.path.join(args.base_file, 'ner2id.json')))
-        self.index2type = {v: k for k, v in self.type2index.items()}
-        self.n_type, self.type2count = len(self.type2index.keys()), {}
-
-        # 关系id
-        self.rel2index = json.load(open(os.path.join(args.base_file, 'rel2id.json')))
-        self.index2rel = {v: k for k, v in self.rel2index.items()}
-        self.n_rel, self.rel2count = len(self.rel2index.keys()), {}
-
-        self.documents, self.entities, self.pairs = OrderedDict(), OrderedDict(), OrderedDict()
-
-        # 将距离分为9组
-        self.dis2idx_dir = np.zeros((800), dtype='int64') # distance feature
-        self.dis2idx_dir[1] = 1
-        self.dis2idx_dir[2:] = 2
-        self.dis2idx_dir[4:] = 3
-        self.dis2idx_dir[8:] = 4
-        self.dis2idx_dir[16:] = 5
-        self.dis2idx_dir[32:] = 6
-        self.dis2idx_dir[64:] = 7
-        self.dis2idx_dir[128:] = 8
-        self.dis2idx_dir[256:] = 9
-        self.dis_size = 20
-        self.PairInfo = namedtuple('PairInfo', 'type direction cross')
-
-    def preprocess(self,lines):
-        """DocRED数据预处理
-        Args:
-            lines (_type_): _description_
-        """
-        lengths = []
-        sents = []
-        doc_id = -1
-        document_meta = []
-        entities_cor_id = {}
-        for line in lines:
-            text_meta = {}
-            line = json.loads(line)
-            doc_id += 1
-            towrite_meta = str(doc_id) + "\t"  # pmid 0
-            text_meta['pmid'] = doc_id
-            
-            Ls = [0]
-            L = 0
-            # 统计文档中每句话的长度，以及文档的总长度
-            for x in line['sents']:
-                L += len(x)
-                Ls.append(L)
-            # 将每句话中，如果某个字符带有空格，用特殊符号代替
-            for x_index, x in enumerate(line['sents']):
-                for ix_index, ix in enumerate(x):
-                    if " " in ix:
-                        assert ix == " " or ix == "  ", print(ix)
-                        line['sents'][x_index][ix_index] = "_"
-            # 拼接文档中句子
-            sentence = [" ".join(x) for x in line['sents']]
-            towrite_meta += "||".join(sentence)  # txt 1
-            p = " ".join(sentence)
-            text_meta['txt'] = sentence
-            if doc_id not in self.documents:
-                self.documents[doc_id] = [t.split(' ') for t in sentence]
-
-            # 统计每个文档中最大句子长度
-            lengths += [max([len(s) for s in self.documents[doc_id]])]
-            # 句子数量
-            sents += [len(sentence)]
-
-            document_list = []
-            for x in line['sents']:
-                document_list.append(" ".join(x))
-
-            document = "\n".join(document_list)
-            assert "   " not in document
-            assert "||" not in p and "\t" not in p
-
-            # 修正文档中标注的实体的基本信息
-            vertexSet = line['vertexSet']
-            for j in range(len(vertexSet)):
-                for k in range(len(vertexSet[j])):
-                    vertexSet[j][k]['name'] = str(vertexSet[j][k]['name']).replace('4.\nStranmillis Road',
-                                                                                'Stranmillis Road')
-                    vertexSet[j][k]['name'] = str(vertexSet[j][k]['name']).replace("\n", "")
-            
-            # 将文档中的实体在句子中位置信息修正为在文档中位置信息
-            # point position added with sent start position
-            for j in range(len(vertexSet)):
-                for k in range(len(vertexSet[j])):
-                    vertexSet[j][k]['sent_id'] = int(vertexSet[j][k]['sent_id'])
-
-                    sent_id = vertexSet[j][k]['sent_id']
-                    assert sent_id < len(Ls)-1
-                    sent_id = min(len(Ls)-1, sent_id)
-                    dl = Ls[sent_id]
-                    pos1 = vertexSet[j][k]['pos'][0]
-                    pos2 = vertexSet[j][k]['pos'][1]
-                    # 在文档中位置信息
-                    vertexSet[j][k]['pos'] = (pos1 + dl, pos2 + dl)
-                    # 在当前句子中位置信息
-                    vertexSet[j][k]['s_pos'] = (pos1, pos2)
-
-            # 组合成训练的标签
-            labels = line.get('labels', [])
-            train_triple = set([])
-            towrite = ""
-            for label in labels:
-                train_triple.add((label['h'], label['t']))
-            # 将数据集中其他实体进行两两匹配，组合成关系为NA的triple组
-            na_triple = []
-            for j in range(len(vertexSet)):
-                for k in range(len(vertexSet)):
-                    if (j != k):
-                        if (j, k) not in train_triple:
-                            na_triple.append((j, k))
-                            labels.append({'h': j, 'r': 'NA', 't': k})
-            
-            sen_len = len(sentence)
-            word_len = sum([len(t.split(' ')) for t in sentence])
-
-            if doc_id not in self.entities:
-                self.entities[doc_id] = OrderedDict()
-
-            if doc_id not in self.pairs:
-                self.pairs[doc_id] = OrderedDict()
-
-            label_metas = []
-            entities_dist = []
-            for label in labels:
-                l_meta = {}
-                rel = label['r']  # 'type'
-                dir = "L2R"  # no use 'dir'
-                # 有关系的实体对保存在vertexSet中的实际信息
-                head = vertexSet[label['h']]
-                tail = vertexSet[label['t']]
-                # head和tail实体是否在同一个句子中
-                cross = find_cross(head, tail)
-                l_meta["rel"] = str(rel)
-                l_meta['direction'] = dir
-                l_meta["cross"] = str(cross) # head,tail 是否出现在同一个句子中
-                l_meta["head"] = [head[0]['pos'][0],head[0]['pos'][1]] # head实体的在文档中index
-                l_meta["tail"] = [tail[0]['pos'][0],tail[0]['pos'][1]] # tail实体的在文档中index
-
-                # rel:0,dir:1,cross:2,head_pos:3,tail_pos:4
-                towrite = towrite + "\t" + str(rel) + "\t" + str(dir) + "\t" + str(cross) + "\t" + str(
-                    head[0]['pos'][0]) + "-" + str(head[0]['pos'][1]) + "\t" + str(tail[0]['pos'][0]) + "-" + str(
-                    tail[0]['pos'][1])
-
-                head_ent_info = {}
-                # 某个实体可能出现多个句子中
-                head_ent_info['id'] = label['h'] # 出现在vertexSet中的位置
-                head_ent_info["name"] = [g['name'] for g in head] # 实体name
-                head_ent_info["type"] = [str(g['type']) for g in head] # 出现在不同句子中，该name的实体类型
-                head_ent_info["mstart"] = [str(g['pos'][0]) for g in head] # 出现在不同句子中，开始的位置
-                head_ent_info["mend"] = [str(g['pos'][1]) for g in head] # 出现在不同句子中，结束的位置
-                head_ent_info["sentNo"] = [str(g['sent_id']) for g in head] # 出现在不同句子中的id
-                
-
-                for x in head_ent_info["mstart"]:
-                    assert int(x) <= word_len-1, print(label_metas, '\t', word_len)
-                for x in head_ent_info["mend"]:
-                    assert int(x) <= word_len-1, print(label_metas, '\t', word_len)
-                for x in head_ent_info["sentNo"]:
-                    assert int(x) <= sen_len-1, print(label_metas, '\t', word_len)
-
-                head_ent_info["mstart"] = [str(min(int(x), word_len - 1)) for x in head_ent_info["mstart"]]
-                head_ent_info["mend"] = [str(min(int(x), word_len)) for x in head_ent_info["mend"]]
-                head_ent_info["sentNo"] = [str(min(int(x), sen_len - 1)) for x in head_ent_info["sentNo"]]
-
-                l_meta["head_ent_info"] = head_ent_info
-
-                # h_label:5,name:6,type:7,h_h_pos:8,h_t_pos:9,h_sent:10
-                towrite += "\t" + str(label['h']) + "\t" + '||'.join([g['name'] for g in head]) + "\t" + ":".join([str(g['type']) for g in head]) \
-                        + "\t" + ":".join([str(g['pos'][0]) for g in head]) + "\t" + ":".join(
-                    [str(g['pos'][1]) for g in head]) + "\t" \
-                        + ":".join([str(g['sent_id']) for g in head])
-
-                tail_ent_info = {}
-                # 某个实体可能出现多个句子中
-                tail_ent_info['id'] = label['t'] # 出现在vertexSet中的位置
-                tail_ent_info["name"] = [g['name'] for g in tail]
-                tail_ent_info["type"] = [str(g['type']) for g in tail] # 出现在不同句子中，该name的实体类型
-                tail_ent_info["mstart"] = [str(g['pos'][0]) for g in tail] # 出现在不同句子中，开始的位置
-                tail_ent_info["mend"] = [str(g['pos'][1]) for g in tail] # 出现在不同句子中，结束的位置
-                tail_ent_info["sentNo"] = [str(g['sent_id']) for g in tail] # 出现在不同句子中的id
-
-
-                for x in tail_ent_info["mstart"]:
-                    assert int(x) <= word_len, print(label_metas, '\t', word_len)
-                for x in tail_ent_info["mend"]:
-                    assert int(x) <= word_len, print(label_metas, '\t', word_len)
-                for x in tail_ent_info["sentNo"]:
-                    assert int(x) <= sen_len-1, print(label_metas, '\t', word_len)
-
-                tail_ent_info["mstart"] = [str(min(int(x), word_len - 1)) for x in tail_ent_info["mstart"]]
-                tail_ent_info["mend"] = [str(min(int(x), word_len)) for x in tail_ent_info["mend"]]
-                tail_ent_info["sentNo"] = [str(min(int(x), sen_len - 1)) for x in tail_ent_info["sentNo"]]
-                
-                l_meta["tail_ent_info"] = tail_ent_info
-                label_metas.append(l_meta)
-
-                # t_label:11,name:12,type:13,t_h_pos:14,t_t_pos:15,t_sent:16
-                towrite += "\t" + str(label['t']) + "\t" + '||'.join([g['name'] for g in tail]) + "\t" + ":".join([str(g['type']) for g in tail]) \
-                        + "\t" + ":".join([str(g['pos'][0]) for g in tail]) + "\t" + ":".join(
-                    [str(g['pos'][1]) for g in tail]) + "\t" \
-                        + ":".join([str(g['sent_id']) for g in tail])
-            
-                # entities
-                if head_ent_info['id'] not in self.entities[doc_id]:
-                    self.entities[doc_id][head_ent_info['index']] = head_ent_info
-                    entities_dist.append((head_ent_info['index'], min([int(a) for a in head_ent_info["mstart"]])))
-
-                if tail_ent_info['id'] not in self.entities[doc_id]:
-                    self.entities[doc_id][tail_ent_info['index']] = tail_ent_info
-                    entities_dist.append((tail_ent_info['index'], min([int(a) for a in tail_ent_info["mstart"]])))
-
-                entity_pair_dis = get_distance(head_ent_info["sentNo"] , tail_ent_info["sentNo"])
-                if (head_ent_info['id'], tail_ent_info['id']) not in self.pairs[doc_id]:
-                    self.pairs[doc_id][(head_ent_info['id'], tail_ent_info['id'])] = [self.PairInfo(rel, dir, entity_pair_dis)]
-
-                else:
-                    self.pairs[doc_id][(head_ent_info['id'], tail_ent_info['id'])].append(self.PairInfo(rel, dir, entity_pair_dis))
-
-            entities_dist.sort(key=lambda x: x[1], reverse=False)
-            entities_cor_id[doc_id] = {}
-            for coref_id, key in enumerate(entities_dist):
-                entities_cor_id[doc_id][key[0]] = coref_id + 1
-
-            text_meta['label'] = label_metas
-    
-            document_meta.append(text_meta)
-
-        for did, p in self.pairs.items():
-            for k, vs in p.items():
-                for v in vs:
-                    self.add_relation(v.type)
-        
-        self.find_max_length(lengths)
-        
-        return lengths, sents, entities_cor_id
-
-    def find_max_length(self, length):
-        """ Maximum distance between words """
-        for l in length:
-            if l-1 > self.max_distance:
-                self.max_distance = l-1
-
-
-    def add_relation(self, rel):
-        assert rel in self.rel2index
-        if rel not in self.rel2index:
-            self.rel2index[rel] = self.n_rel
-            self.rel2count[rel] = 1
-            self.index2rel[self.n_rel] = rel
-            self.n_rel += 1
-        else:
-            if rel not in self.rel2count:
-                self.rel2count[rel] = 0
-            self.rel2count[rel] += 1

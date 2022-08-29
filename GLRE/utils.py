@@ -1,7 +1,36 @@
 import torch
 from torch import nn
+import numpy as np
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence,pad_sequence
 from torch.autograd import Variable
+
+
+def sparse_mxs_to_torch_sparse_tensor(sparse_mxs):
+    """
+    Convert a list of scipy sparse matrix to a torch sparse tensor.
+    :param sparse_mxs: [sparse_mx] adj
+    :return:
+    """
+    max_shape = 0
+    for mx in sparse_mxs:
+        max_shape = max(max_shape, mx.shape[0])
+    b_index = []
+    row_index = []
+    col_index = []
+    value = []
+    for index, sparse_mx in enumerate(sparse_mxs):
+        sparse_mx = sparse_mx.tocoo().astype(np.float32)
+        b_index.extend([index] * len(sparse_mx.row))
+        row_index.extend(sparse_mx.row)
+        col_index.extend(sparse_mx.col)
+        value.extend(sparse_mx.data)
+    indices = torch.from_numpy(
+        np.vstack((b_index, row_index, col_index)).astype(np.int64))
+    values = torch.FloatTensor(value)
+    shape = torch.Size([len(sparse_mxs), max_shape, max_shape])
+    return torch.sparse.FloatTensor(indices, values, shape)
+
+
 
 
 def get_distance(e1_sentNo, e2_sentNo):
