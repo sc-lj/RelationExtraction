@@ -173,7 +173,8 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        from PRGC.PRGC_Model import PRGCDataset, PRGCPytochLighting, collate_fn_test, collate_fn_train
+        from PRGC.Model import PRGCPytochLighting
+        from PRGC.Dataset import PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)

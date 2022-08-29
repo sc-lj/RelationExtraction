@@ -1,3 +1,7 @@
+
+Label2IdxSub = {"B-H": 1, "I-H": 2, "O": 0}
+Label2IdxObj = {"B-T": 1, "I-T": 2, "O": 0}
+
 def get_chunk_type(tok, idx_to_tag):
     """
     Args:
