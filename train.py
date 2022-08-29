@@ -1,4 +1,5 @@
 import argparse
+import imp
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
@@ -213,7 +214,8 @@ def main():
         model = Span4REPytochLighting(args)
 
     elif args.model_type == "one4rel":
-        from OneRel.OneRel_Model import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
+        from OneRel import OneRelPytochLighting
+        from OneRel import OneRelDataset, collate_fn, TAG2ID
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
         relation_number = train_dataset.relation_size
         new_collate_fn = lambda x:collate_fn(x,relation_number)
