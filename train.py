@@ -121,7 +121,8 @@ def parser_args():
 def main():
     args = parser_args()
     if args.model_type == "tdeer":
-        from TDeer.TDeer_Model import TDEERDataset, collate_fn, collate_fn_val, TDEERPytochLighting
+        from TDeer.Model import TDEERPytochLighting
+        from TDeer.Dataset import TDEERDataset, collate_fn, collate_fn_val
         train_dataset = TDEERDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
