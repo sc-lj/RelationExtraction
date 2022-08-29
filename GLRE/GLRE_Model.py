@@ -586,7 +586,7 @@ class GLREDataset(Dataset):
         self.dis2idx_dir[128:] = 8
         self.dis2idx_dir[256:] = 9
         self.dis_size = 20
-        self.PairInfo = namedtuple('PairInfo', 'type direction cross intrain')
+        self.PairInfo = namedtuple('PairInfo', 'type direction cross')
 
     def preprocess(self,lines):
         """DocRED数据预处理
