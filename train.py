@@ -122,7 +122,7 @@ def parser_args():
 def main():
     args = parser_args()
     if args.model_type == "tdeer":
-        from TDeer.Model import TDEERPytochLighting
+        from TDeer import TDEERPytochLighting
         from TDeer import TDEERDataset, collate_fn, collate_fn_val
         train_dataset = TDEERDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
