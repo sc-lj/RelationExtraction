@@ -194,8 +194,8 @@ def main():
         model = PRGCPytochLighting(args)
 
     elif args.model_type == "span4re":
-        from SPN4RE.Model import Span4REPytochLighting
-        from SPN4RE.Dataset import Span4REDataset,collate_fn
+        from SPN4RE import Span4REPytochLighting
+        from SPN4RE import Span4REDataset,collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
