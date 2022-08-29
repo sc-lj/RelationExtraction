@@ -122,8 +122,7 @@ def parser_args():
 def main():
     args = parser_args()
     if args.model_type == "tdeer":
-        from TDeer import TDEERPytochLighting
-        from TDeer import TDEERDataset, collate_fn, collate_fn_val
+        from TDeer import TDEERPytochLighting,TDEERDataset, collate_fn, collate_fn_val
         train_dataset = TDEERDataset(args.train_file, args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
@@ -137,9 +136,7 @@ def main():
         model = TDEERPytochLighting(args)
 
     elif args.model_type == "tplinker":
-        from TPlinker.Model import  TPlinkerPytochLighting
-        from TPlinker.Dataset import TPlinkerDataset
-        from TPlinker.utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
+        from TPlinker import  TPlinkerPytochLighting,TPlinkerDataset,HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
@@ -174,8 +171,7 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        from PRGC import PRGCPytochLighting
-        from PRGC import PRGCDataset, collate_fn_test, collate_fn_train
+        from PRGC import PRGCPytochLighting,PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
@@ -194,8 +190,7 @@ def main():
         model = PRGCPytochLighting(args)
 
     elif args.model_type == "span4re":
-        from SPN4RE import Span4REPytochLighting
-        from SPN4RE import Span4REDataset,collate_fn
+        from SPN4RE import Span4REPytochLighting, Span4REDataset,collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
@@ -214,8 +209,7 @@ def main():
         model = Span4REPytochLighting(args)
 
     elif args.model_type == "one4rel":
-        from OneRel import OneRelPytochLighting
-        from OneRel import OneRelDataset, collate_fn, TAG2ID
+        from OneRel import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
         train_dataset = OneRelDataset(args.train_file, args, is_training=True)
         relation_number = train_dataset.relation_size
         new_collate_fn = lambda x:collate_fn(x,relation_number)
