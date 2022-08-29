@@ -135,8 +135,9 @@ def main():
         model = TDEERPytochLighting(args)
 
     elif args.model_type == "tplinker":
-        from TPlinker.TPlinker_Model import TPlinkerDataset, TPlinkerPytochLighting
-        from TPlinker.TPlinker_utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
+        from TPlinker.Model import  TPlinkerPytochLighting
+        from TPlinker.Dataset import TPlinkerDataset
+        from TPlinker.utils import HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
