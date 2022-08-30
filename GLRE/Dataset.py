@@ -557,9 +557,10 @@ class GLREDataset(Dataset):
         rgcn_adjacency[3] = np.where(np.logical_or(r_id == 1, r_id == 3) & (c_id == 2) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])  # belongs to sentence
         rgcn_adjacency[3] = np.where((r_id == 2) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])
 
-        # entity-sentence
+        # entity-sentence ,实体与句子的graph为啥要这么实现呢？
         for x, y in zip(xv.ravel(), yv.ravel()):
             if nodes[x, 5] == 0 and nodes[y, 5] == 2:  # this is an entity-sentence edge
+                # 节点id r_Eid 中等于x的节点id，节点类型为mention，节点类型为句子，句子id等于y的句子id
                 z = np.where((r_Eid == nodes[x, 0]) & (r_id == 1) & (c_id == 2) & (c_Sid == nodes[y, 4]))
 
                 # at least one M in S
@@ -573,29 +574,39 @@ class GLREDataset(Dataset):
         rgcn_adjacency = sparse_mxs_to_torch_sparse_tensor([sp.coo_matrix(rgcn_adjacency[i]) for i in range(5)])
 
         dist_dir_h_t = dist_dir_h_t[0: entity_size, 0:entity_size]
-        data = {'ents': ent, 
-                'rels': trel, 
-                'multi_rels': relation_multi_label,
-                'dist_dir': dist_dir_h_t, 
-                'text': doc, 
-                'info': rel_info,
-                'adjacency': adjacency, 
-                'rgcn_adjacency': rgcn_adjacency,
+        data = {'ents': ent, # 所有mention 实体信息
+                'rels': trel,  # 两两实体只存在一个关系
+                'multi_rels': relation_multi_label, # 两两实体存在多个关系
+                'dist_dir': dist_dir_h_t, # 两两实体所属的分段距离，
+                'text': doc, # 文档的token信息
+                'info': rel_info, # 文档的关系信息
+                'adjacency': adjacency, # 文档的邻接矩阵信息
+                'rgcn_adjacency': rgcn_adjacency, # 文档的rgcn邻接矩阵信息
+                # 实体数量，mention数量，句子数量，words数量
                 'section': np.array([len(self.entities[pmid].items()), ent.shape[0], len(doc), sum([len(s) for s in doc])]),
-                'word_sec': np.array([len(s) for s in doc]),
-                'bert_token': bert_token, 
-                'bert_mask': bert_mask, 
-                'bert_starts': bert_starts}
-
+                'word_sec': np.array([len(s) for s in doc]), # 每个句子的word数量
+                'bert_token': bert_token, # input_ids
+                'bert_mask': bert_mask,  # attention_mask
+                'bert_starts': bert_starts, # 文本中每个words的start在input_ids中的位置
+                }
+                
         return data
 
 
-
 def convert_batch(batch, NA_NUM,NA_id,istrain=False):
+    """_summary_
+    Args:
+        batch (_type_): _description_
+        NA_NUM (_type_): _description_
+        NA_id (_type_): _description_
+        istrain (bool, optional): _description_. Defaults to False.
+
+    Returns:
+        _type_: _description_
+    """
     new_batch = {'entities': [], 'bert_token': [], 'bert_mask': [], 'bert_starts': [], 'pos_idx': []}
     ent_count, sent_count, word_count = 0, 0, 0
     full_text = []
-
 
     for i, b in enumerate(batch):
         current_text = list(itertools.chain.from_iterable(b['text']))
@@ -607,7 +618,6 @@ def convert_batch(batch, NA_NUM,NA_id,istrain=False):
         temp = []
         for e in b['ents']:
             temp += [[e[0] + ent_count, e[1], e[2] + word_count, e[3] + word_count, e[4] + sent_count, e[4], e[5]]]  # id  type start end sent_id
-
         new_batch['entities'] += [np.array(temp)]
         word_count += sum([len(s) for s in b['text']])
         ent_count = max([t[0] for t in temp]) + 1
@@ -621,7 +631,6 @@ def convert_batch(batch, NA_NUM,NA_id,istrain=False):
 
     batch_ = [{k: v for k, v in b.items() if (k != 'info' and k != 'text' and k != 'rgcn_adjacency')} for b in batch]
     converted_batch = concat_examples(batch_, padding=-1)
-
     converted_batch['adjacency'][converted_batch['adjacency'] == -1] = 0
     converted_batch['dist_dir'][converted_batch['dist_dir'] == -1] = 0
 
@@ -630,8 +639,10 @@ def convert_batch(batch, NA_NUM,NA_id,istrain=False):
     new_batch['relations'] = converted_batch['rels'].float()
     new_batch['multi_relations'] = converted_batch['multi_rels'].float().clone()
     if istrain and NA_NUM < 1.0:
+        # 按照一定概率对存在NA关系的实体对修改其值，即生成soft label
         index = new_batch['multi_relations'][:, :, :, NA_id].nonzero()
         if index.size(0)!=0:
+            # 随机生成len(index)个值，且其值小于NA_NUM
             value = (torch.rand(len(index)) < NA_NUM).float()
             if (value == 0).all():
                 value[0] = 1.0
