@@ -19,7 +19,7 @@ def parser_args():
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--data_dir', type=str,
-                        default="data/DocRED", help='specify the train path')
+                        default="data/data/DocRED", help='specify the train path')
     parser.add_argument('--learning_rate', default=5e-5,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -231,9 +231,9 @@ def main():
         val_dataloader = DataLoader(
             val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
 
-        args.relation_number = relation_number
-        args.tag_size = len(TAG2ID)
+        args.rel_size = relation_number
         args.steps = len(train_dataset)
+        args.ignore_label = train_dataset.label2ignore
         model = GLREModuelPytochLighting(args)
 
     else:

@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn 
 from Attention import *
 from GLRE.utils import *
+from GLRE.config import *
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -23,10 +24,9 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 class RGCN_Layer(nn.Module):
     """ A Relation GCN module operated on documents graphs. """
-    def __init__(self, args, in_dim, mem_dim, num_layers, relation_cnt=5):
+    def __init__(self, in_dim, mem_dim, num_layers, relation_cnt=5):
         """
         Args:
-            args (_type_): _description_
             in_dim (_type_): GCN layer 输入的维度
             mem_dim (_type_): GCN layer 中间层以及输出的维度
             num_layers (_type_): GCN layer 的层数
@@ -34,13 +34,13 @@ class RGCN_Layer(nn.Module):
         """
         super().__init__()
         self.layers = num_layers
-        self.device = torch.device("cuda" if args.gpu != -1 else "cpu")
+        self.device = torch.device("cuda")
         self.mem_dim = mem_dim
         self.relation_cnt = relation_cnt
         self.in_dim = in_dim
 
-        self.in_drop = nn.Dropout(args.gcn_in_drop)
-        self.gcn_drop = nn.Dropout(args.gcn_out_drop)
+        self.in_drop = nn.Dropout(GCN_IN_DROP)
+        self.gcn_drop = nn.Dropout(GCN_OUT_DROP)
 
         # gcn layer
         self.W_0 = nn.ModuleList()
@@ -109,15 +109,15 @@ class RGCN_Layer(nn.Module):
 
 
 class Local_rep_layer(nn.Module):
-    def __init__(self, args):
+    def __init__(self):
         super(Local_rep_layer, self).__init__()
-        self.query = args.query
-        input_dim = args.rgcn_hidden_dim
-        self.device = torch.device("cuda" if args.gpu != -1 else "cpu")
+        self.query = QUERY
+        input_dim = RGCN_HIDDEN_DIM
+        self.device = torch.device("cuda")
 
-        self.multiheadattention = MultiHeadAttention(input_dim, num_heads=args.att_head_num, dropout=args.att_dropout)
-        self.multiheadattention1 = MultiHeadAttention(input_dim, num_heads=args.att_head_num,
-                                                     dropout=args.att_dropout)
+        self.multiheadattention = MultiHeadAttention(input_dim, num_heads=ATTN_HEAD_NUM, dropout=ATTN_DROP)
+        self.multiheadattention1 = MultiHeadAttention(input_dim, num_heads=ATTN_HEAD_NUM,
+                                                     dropout=ATTN_DROP)
 
 
     def forward(self, info, section, nodes, global_nodes):
@@ -162,75 +162,69 @@ class GLREModule(nn.Module):
         super().__init__()
         self.bert = BertModel.from_pretrained(args.pretrain_path)
         hidden_size = self.bert.config.hidden_size
-        self.pretrain_lm_linear_re = nn.Linear(hidden_size, args.lstm_dim)
+        self.pretrain_lm_linear_re = nn.Linear(hidden_size, LSTM_DIM)
         # 是否对实体类型进行embedding
-        if args.types:
+        if TYPES:
             self.type_embed = EmbedLayer(num_embeddings=3,
-                                         embedding_dim=args.type_dim,
+                                         embedding_dim=TYPE_DIM,
                                          dropout=0.0)
 
         # global node rep
-        rgcn_input_dim = args.lstm_dim
-        if args.types:
-            rgcn_input_dim += args.type_dim
+        rgcn_input_dim = LSTM_DIM
+        if TYPES:
+            rgcn_input_dim += TYPE_DIM
 
-        self.rgcn_layer = RGCN_Layer(args, rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers, relation_cnt=5)
-        self.rgcn_linear_re = nn.Linear(args.rgcn_hidden_dim*2, args.rgcn_hidden_dim)
+        self.rgcn_layer = RGCN_Layer(rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
+        self.rgcn_linear_re = nn.Linear(RGCN_HIDDEN_DIM*2, RGCN_HIDDEN_DIM)
         self.encoder = EncoderLSTM(input_size=hidden_size,
-                                   num_units=args.lstm_dim,
-                                   nlayers=args.bilstm_layers,
+                                   num_units=LSTM_DIM,
+                                   nlayers=BILSTM_LAYERS,
                                    bidir=True,
-                                   dropout=args.drop_i)
-        if args.finaldist:
-            self.dist_embed_dir = EmbedLayer(num_embeddings=20, embedding_dim=args.dist_dim,
+                                   dropout=DROP_I)
+        if FINALDIST:
+            self.dist_embed_dir = EmbedLayer(num_embeddings=20, embedding_dim=DIST_DIM,
                                              dropout=0.0,
                                              ignore=10,
                                              freeze=False,
                                              pretrained=None,
                                              mapping=None)
                                              
-        if args.rgcn_num_layers == 0:
+        if RGCN_NUM_LAYERS == 0:
             input_dim = rgcn_input_dim * 2
         else:
-            input_dim = args.rgcn_hidden_dim * 2
+            input_dim = RGCN_HIDDEN_DIM * 2
 
-        if args.local_rep:
-            self.local_rep_layer = Local_rep_layer(args)
-            if not args.global_rep:
-                input_dim = args.lstm_dim * 2
-            else:
-                input_dim += args.lstm_dim* 2
+        self.local_rep_layer = Local_rep_layer()
+        input_dim += LSTM_DIM* 2
 
-        if args.finaldist:
-            input_dim += args.dist_dim * 2
+        if FINALDIST:
+            input_dim += DIST_DIM * 2
 
 
-        if args.context_att:
+        if CONTEXT_ATT:
             self.self_att = SelfAttention(input_dim, 1.0)
             input_dim = input_dim * 2
 
-        self.mlp_layer = args.mlp_layers
+        self.mlp_layer = MLP_LAYERS
         if self.mlp_layer>-1:
-            hidden_dim = args.mlp_dim
+            hidden_dim = MLP_DIM
             layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
-            for _ in range(args.mlp_layers - 1):
+            for _ in range(MLP_LAYERS - 1):
                 layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU()]
             self.out_mlp = nn.Sequential(*layers)
             input_dim = hidden_dim
 
         self.classifier = Classifier(in_size=input_dim,
                                      out_size=args.rel_size,
-                                     dropout=args.drop_o)
+                                     dropout=DROP_O)
 
-        self.finaldist = args.finaldist
-        self.context_att = args.context_att
-        self.query = args.query
+        self.finaldist = FINALDIST
+        self.context_att = CONTEXT_ATT
+        self.query = QUERY
         assert self.query == 'init' or self.query == 'global'
-        self.global_rep = args.global_rep
-        self.lstm_encoder = args.lstm_encoder
-        self.more_lstm = args.more_lstm
+        self.more_lstm = MORE_LSTM
 
-        self.dataset = args.dataset
+        self.dataset = DATASET
 
     def encoding_layer(self, word_vec, seq_lens):
         """
