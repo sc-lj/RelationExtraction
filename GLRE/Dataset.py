@@ -38,18 +38,18 @@ class GLREDataset(Dataset):
 
         # 实体id
         self.type2index = json.load(
-            open(os.path.join(args.base_file, 'ner2id.json')))
+            open(os.path.join(args.data_dir, 'ner2id.json')))
         self.index2type = {v: k for k, v in self.type2index.items()}
         self.n_type, self.type2count = len(self.type2index.keys()), {}
 
         # 关系id
         self.rel2index = json.load(
-            open(os.path.join(args.base_file, 'rel2id.json')))
+            open(os.path.join(args.data_dir, 'rel2id.json')))
         self.index2rel = {v: k for k, v in self.rel2index.items()}
         self.n_rel, self.rel2count = len(self.rel2index.keys()), {}
 
         self.word2index = json.load(
-            open(os.path.join(self.base_file, "word2id.json")))
+            open(os.path.join(self.data_dir, "word2id.json")))
         self.index2word = {v: k for k, v in self.word2index.items()}
         self.n_words, self.word2count = len(
             self.word2index.keys()), {'<UNK>': 1}
@@ -671,13 +671,13 @@ class GLREDataset(Dataset):
         return data
 
 
-def convert_batch(batch, NA_NUM, NA_id, istrain=False):
+def collate_fn(batch, NA_NUM, NA_id, istrain=False):
     """_summary_
     Args:
         batch (_type_): _description_
         NA_NUM (_type_): _description_
-        NA_id (_type_): _description_
-        istrain (bool, optional): _description_. Defaults to False.
+        NA_id (_type_): NA 标签的id
+        istrain (bool, optional): 是否是训练集. Defaults to False.
 
     Returns:
         _type_: _description_

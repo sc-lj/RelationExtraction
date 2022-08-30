@@ -18,10 +18,8 @@ def parser_args():
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
-    parser.add_argument('--relation', type=str,
-                        default="./data/data/NYT/rel2id.json", help='specify the relation path')
     parser.add_argument('--data_dir', type=str,
-                        default="./data/data/NYT", help='specify the train path')
+                        default="data/DocRED", help='specify the train path')
     parser.add_argument('--learning_rate', default=5e-5,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -220,12 +218,18 @@ def main():
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
         train_dataset = GLREDataset(args, is_training=True)
         relation_number = train_dataset.relation_size
-        def new_collate_fn(x): return collate_fn(x, relation_number)
-        train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
+
+        def train_collate_fn(x): return collate_fn(
+            x, relation_number, istrain=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8)
+
         val_dataset = GLREDataset(args, is_training=False)
+
+        def val_collate_fn(x): return collate_fn(
+            x, relation_number, istrain=False)
         val_dataloader = DataLoader(
-            val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
+            val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
 
         args.relation_number = relation_number
         args.tag_size = len(TAG2ID)
