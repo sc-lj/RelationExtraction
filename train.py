@@ -20,10 +20,8 @@ def parser_args():
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--relation', type=str,
                         default="./data/data/NYT/rel2id.json", help='specify the relation path')
-    parser.add_argument('--train_file', type=str,
-                        default="./data/data/NYT/train_triples.json", help='specify the train path')
-    parser.add_argument('--val_file', type=str,
-                        default="./data/data/NYT/dev_triples.json", help='specify the dev path')
+    parser.add_argument('--data_dir', type=str,
+                        default="./data/data/NYT", help='specify the train path')
     parser.add_argument('--learning_rate', default=5e-5,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -71,8 +69,6 @@ def parser_args():
                         help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')
     parser.add_argument('--check_tok_span', default=True, type=bool,
                         help="check whether there is any error with token spans, if there is, print the unmatch info")
-    parser.add_argument(
-        '--ent2id_path', default="./data/data/NYT/ent2id.json", type=str, help="预处理的实体标签的保存路径")
     parser.add_argument('--ghm', default=False,
                         type=bool, help="是否使用GHM算法进行损失平滑")
     parser.add_argument('--decay_rate', default=0.999,

@@ -13,6 +13,7 @@ import math
 import os
 from utils.utils import rematch
 
+
 class Linear(nn.Linear):
     def reset_parameters(self) -> None:
         nn.init.xavier_normal_(self.weight)
@@ -257,7 +258,7 @@ class TDEERPytochLighting(pl.LightningModule):
         # 只针对对抗训练时，关闭自动优化
         # self.automatic_optimization = False
         self.fgm = FGM(self.model)
-        with open(args.relation, 'r') as f:
+        with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)
         self.id2rel = relation[0]
         self.rel_loss = nn.MultiLabelSoftMarginLoss()
@@ -516,4 +517,3 @@ class TDEERPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
-

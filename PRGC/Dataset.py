@@ -39,7 +39,7 @@ class PRGCDataset(Dataset):
             args.pretrain_path, cache_dir="./bertbaseuncased")
         self.is_training = is_training
         self.batch_size = args.batch_size
-        with open(args.relation, 'r') as f:
+        with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)
         self.rel2id = relation[1]
         self.rels_set = list(self.rel2id.values())

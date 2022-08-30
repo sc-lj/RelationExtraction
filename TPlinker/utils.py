@@ -9,7 +9,7 @@ import copy
 class HandshakingTaggingScheme(object):
     def __init__(self, args):
         super().__init__()
-        with open(args.relation, 'r') as f:
+        with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)
         rel2id = relation[1]
         self.rel2id = rel2id
@@ -24,7 +24,7 @@ class HandshakingTaggingScheme(object):
         # 将关系类型和组合类型进行组合,{RELNAME\u2E80SH2OH,RELNAME\u2E80OH2SH}
         self.tags = {self.separator.join(
             [rel, lt]) for rel in self.rel2id.keys() for lt in self.link_types}
-        with open(args.ent2id_path, 'r') as f:
+        with open(os.path.join(args.data_dir, "ent2id.json"), 'r') as f:
             entity_type2id = json.load(f)
         self.ent2id = entity_type2id
         self.id2ent = {ind: ent for ent, ind in self.ent2id.items()}
@@ -142,7 +142,7 @@ class HandshakingTaggingScheme(object):
         '''
         spots = []
         nonzero_points = torch.nonzero(shaking_tag, as_tuple=False)
-        for index,point in enumerate(nonzero_points):
+        for index, point in enumerate(nonzero_points):
             shaking_idx, tag_idx = point[0].item(), point[1].item()
             pos1, pos2 = self.shaking_idx2matrix_idx[shaking_idx]
             spot = (pos1, pos2, tag_idx)
@@ -463,7 +463,7 @@ class DataMaker4BiLSTM():
 
 
 class MetricsCalculator():
-    def __init__(self, shaking_tagger:HandshakingTaggingScheme):
+    def __init__(self, shaking_tagger: HandshakingTaggingScheme):
         self.shaking_tagger = shaking_tagger
         self.last_weights = None  # for exponential moving averaging
 
@@ -523,7 +523,8 @@ class MetricsCalculator():
         y_true and y_pred have the same shape，elements in y_true are either 0 or 1，
              1 tags positive classes，0 tags negtive classes(means tok-pair does not have this type of link).
         """
-        y_pred = (1 - 2 * y_true) * y_pred  # -1 -> pos classes, 1 -> neg classes
+        y_pred = (1 - 2 * y_true) * \
+            y_pred  # -1 -> pos classes, 1 -> neg classes
         y_pred_neg = y_pred - y_true * 1e12  # mask the pred oudtuts of pos classes
         # mask the pred oudtuts of neg classes
         y_pred_pos = y_pred - (1 - y_true) * 1e12
@@ -740,7 +741,7 @@ class MetricsCalculator():
 
 
 class TplinkerDataProcess():
-    def __init__(self,args,filename,get_tok2char_span_map,is_training) -> None:
+    def __init__(self, args, filename, get_tok2char_span_map, is_training) -> None:
         self._get_tok2char_span_map = get_tok2char_span_map
         self.args = args
         with open(filename, 'r') as f:
@@ -750,7 +751,7 @@ class TplinkerDataProcess():
         else:
             self.data_type = "val"
         self.preprocess(lines)
-        
+
     def preprocess(self, data):
         """预处理文本
         Args:
@@ -811,10 +812,10 @@ class TplinkerDataProcess():
             json.dump(rel2id, open(rel2id_path, "w",
                       encoding="utf-8"), ensure_ascii=False)
 
-        if not os.path.exists(self.args.ent2id_path):
-            json.dump(ent2id, open(self.args.ent2id_path, "w",
+        if not os.path.exists(os.path.join(self.args.data_dir, "ent2id.json")):
+            json.dump(ent2id, open(os.path.join(self.args.data_dir, "ent2id.json"), "w",
                       encoding="utf-8"), ensure_ascii=False)
-    
+
     def add_char_span(self, dataset, ignore_subword_match=True):
         miss_sample_list = []
         for sample in tqdm(dataset, desc="adding char level spans"):
@@ -884,7 +885,6 @@ class TplinkerDataProcess():
 
         return span_error_memory
 
-
     def _get_ent2char_spans(self, text, entities, ignore_subword_match=True):
         '''
         获得实体的span 索引
@@ -908,7 +908,6 @@ class TplinkerDataProcess():
             #     set_trace()
             ent2char_spans[ent] = spans
         return ent2char_spans
-
 
     def transform_data(self, data, dataset_type, add_id=True):
         '''
@@ -1024,8 +1023,6 @@ class TplinkerDataProcess():
                 clean_data.append(sample)
         return clean_data, bad_samples
 
-
-
     def add_tok_span(self, dataset):
         '''
         dataset must has char level span
@@ -1066,7 +1063,6 @@ class TplinkerDataProcess():
             char_num += len(tok) + 1  # +1: whitespace
         return tok2char_span
 
-
     def _get_char2tok_span(self, text):
         '''
         map character index to token level span
@@ -1087,4 +1083,3 @@ class TplinkerDataProcess():
                     tok_sp[0] = tok_ind
                 tok_sp[1] = tok_ind + 1
         return char2tok_span
-

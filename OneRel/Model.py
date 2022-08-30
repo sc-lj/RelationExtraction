@@ -61,7 +61,7 @@ class OneRelPytochLighting(pl.LightningModule):
         self.save_hyperparameters(args)
         self.loss = nn.CrossEntropyLoss(reduction="none")
         self.focal_loss = MultiCEFocalLoss(self.args.tag_size)
-        with open(args.relation, 'r') as f:
+        with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)
         self.id2rel = relation[0]
         self.epoch = 0
@@ -81,7 +81,8 @@ class OneRelPytochLighting(pl.LightningModule):
         loss = self.loss(outputs, triple_matrix)
         loss = torch.sum(loss * batch_loss_masks) / torch.sum(batch_loss_masks)
         focal_loss = self.focal_loss(outputs, triple_matrix)
-        focal_loss = torch.sum(focal_loss * batch_loss_masks) / torch.sum(batch_loss_masks)
+        focal_loss = torch.sum(
+            focal_loss * batch_loss_masks) / torch.sum(batch_loss_masks)
         return loss+focal_loss
 
     def validation_step(self, batches, batch_idx):
@@ -99,15 +100,15 @@ class OneRelPytochLighting(pl.LightningModule):
         pred_triple_matrix = pred_triple_matrix.argmax(
             dim=-1).permute(0, 3, 1, 2)
         pred_triples = self.parse_prediction(
-            pred_triple_matrix, batch_loss_masks, texts,offset_maps,triples)
+            pred_triple_matrix, batch_loss_masks, texts, offset_maps, triples)
         return pred_triples, triples, texts
 
-    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, texts,offset_maps,triples):
+    def parse_prediction(self, pred_triple_matrix, batch_loss_masks, texts, offset_maps, triples):
         batch_size, rel_numbers, seq_lens, seq_lens = pred_triple_matrix.shape
         batch_triple_list = []
         for batch in range(batch_size):
             mapping = rematch(offset_maps[batch])
-            triple= triples[batch]
+            triple = triples[batch]
             triple_matrix = pred_triple_matrix[batch].cpu().numpy()
             masks = batch_loss_masks[batch].cpu().numpy()
             triple_matrix = triple_matrix*masks
@@ -127,7 +128,7 @@ class OneRelPytochLighting(pl.LightningModule):
                     # 如果当前第一个标签为HB-TB,即subject begin，object begin
                     if rel_triple_matrix[h_start_index][t_start_index] == TAG2ID['HB-TB']:
                         # 如果下一个标签为HB-TE,即subject begin，object end
-                        find_hb_te= False
+                        find_hb_te = False
                         if i+1 < pair_numbers:
                             t_end_index = tails[i+1]
                             if rel_triple_matrix[h_start_index][t_end_index] == TAG2ID['HB-TE']:
@@ -137,8 +138,10 @@ class OneRelPytochLighting(pl.LightningModule):
                                 for h_end_index in range(h_start_index, seq_lens):
                                     # 向下找到了结尾位置,即subject end，object end
                                     if rel_triple_matrix[h_end_index][t_end_index] == TAG2ID['HE-TE']:
-                                        sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                                        obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                        sub = self.decode_entity(
+                                            text, mapping, h_start_index, h_end_index)
+                                        obj = self.decode_entity(
+                                            text, mapping, t_start_index, t_end_index)
 
                                         if len(sub) > 0 and len(obj) > 0:
                                             triple_list.append((sub, rel, obj))
@@ -147,8 +150,10 @@ class OneRelPytochLighting(pl.LightningModule):
                                 if not find_he_te:
                                     # subject是单个词
                                     h_end_index = h_start_index
-                                    sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                                    obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                    sub = self.decode_entity(
+                                        text, mapping, h_start_index, h_end_index)
+                                    obj = self.decode_entity(
+                                        text, mapping, t_start_index, t_end_index)
                                     if len(sub) > 0 and len(obj) > 0:
                                         triple_list.append((sub, rel, obj))
                         # object 是单个词
@@ -158,8 +163,10 @@ class OneRelPytochLighting(pl.LightningModule):
                             for h_end_index in range(h_start_index, seq_lens):
                                 # 向下找到了结尾位置,即subject end，object end
                                 if rel_triple_matrix[h_end_index][t_end_index] == TAG2ID['HE-TE']:
-                                    sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                                    obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                    sub = self.decode_entity(
+                                        text, mapping, h_start_index, h_end_index)
+                                    obj = self.decode_entity(
+                                        text, mapping, t_start_index, t_end_index)
                                     if len(sub) > 0 and len(obj) > 0:
                                         triple_list.append((sub, rel, obj))
                                         find_he_te = True
@@ -167,8 +174,10 @@ class OneRelPytochLighting(pl.LightningModule):
                             if not find_he_te:
                                 # subject是单个词，且object 是单个词
                                 h_end_index = h_start_index
-                                sub = self.decode_entity(text, mapping, h_start_index, h_end_index)
-                                obj = self.decode_entity(text, mapping, t_start_index, t_end_index)
+                                sub = self.decode_entity(
+                                    text, mapping, h_start_index, h_end_index)
+                                obj = self.decode_entity(
+                                    text, mapping, t_start_index, t_end_index)
                                 if len(sub) > 0 and len(obj) > 0:
                                     triple_list.append((sub, rel, obj))
             batch_triple_list.append(triple_list)
@@ -285,5 +294,3 @@ class OneRelPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
-
-
