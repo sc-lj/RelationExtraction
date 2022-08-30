@@ -160,9 +160,9 @@ class Local_rep_layer(nn.Module):
 class GLREModule(nn.Module):
     def __init__(self,args,) -> None:
         super().__init__()
-        self.pretrain_lm = BertModel.from_pretrained(args.pretrain_path)
-        pretrain_hidden_size = self.pretrain_lm.hidden_size
-        self.pretrain_l_m_linear_re = nn.Linear(pretrain_hidden_size, args.lstm_dim)
+        self.bert = BertModel.from_pretrained(args.pretrain_path)
+        hidden_size = self.bert.config.hidden_size
+        self.pretrain_l_m_linear_re = nn.Linear(hidden_size, args.lstm_dim)
         # 是否对实体类型进行embedding
         if args.types:
             self.type_embed = EmbedLayer(num_embeddings=3,
@@ -176,7 +176,7 @@ class GLREModule(nn.Module):
 
         self.rgcn_layer = RGCN_Layer(args, rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers, relation_cnt=5)
         self.rgcn_linear_re = nn.Linear(args.rgcn_hidden_dim*2, args.rgcn_hidden_dim)
-        self.encoder = EncoderLSTM(input_size=pretrain_hidden_size,
+        self.encoder = EncoderLSTM(input_size=hidden_size,
                                    num_units=args.lstm_dim,
                                    nlayers=args.bilstm_layers,
                                    bidir=True,
@@ -367,11 +367,27 @@ class GLREModule(nn.Module):
             sel = torch.where(condition1, torch.ones_like(sel), sel)
         return sel.nonzero().unbind(dim=1), sel.nonzero()[:, 0]
 
-    def forward(self, bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
-        context_output = self.pretrain_lm(bert_token, attention_mask=bert_mask)[0]
+    def forward(self, input_ids,attention_mask,token_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
+        """_summary_
+
+        Args:
+            input_ids (_type_): 输入的input ids
+            attention_mask (_type_): 输入的attention mask
+            token_starts (_type_): 输入的每个token的起始位置在input ids中的位置,毕竟有些token会被分为两个input id
+            section (_type_): _description_
+            word_sec (_type_): _description_
+            entities (_type_): _description_
+            rgcn_adjacency (_type_): _description_
+            distances_dir (_type_): _description_
+            multi_relations (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        context_output = self.bert(input_ids, attention_mask=attention_mask)[0]
 
         context_output = [layer[starts.nonzero().squeeze(1)] for layer, starts in
-                            zip(context_output, bert_starts)]
+                            zip(context_output, token_starts)]
         context_output_pad = []
         for output, word_len in zip(context_output, section[:, 3]):
             if output.size(0) < word_len:
@@ -489,18 +505,20 @@ class GLREModuelPytochLighting(pl.LightningModule):
         bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
         section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
         rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        relations = batches['relations']
         graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
-                                                                                      batches['multi_relations'][select])
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
+        
         return loss
 
     def validation_step(self, batches,batch_idx):
         bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
         section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
         rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        relations = batches['relations']
         graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
-                                                                                      batches['multi_relations'][select])
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
+        
         pred_pairs = torch.sigmoid(pred_pairs)
         predictions = pred_pairs.data.argmax(dim=1)
         stats = self.count_predictions(predictions, truth)

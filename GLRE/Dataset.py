@@ -27,6 +27,9 @@ class GLREDataset(Dataset):
     def __init__(self,filename, args, is_training=True) -> None:
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
+        self.CLS = self.tokenizer.cls_token
+        self.SEP = self.tokenizer.sep_token
+
         self.is_training = is_training
         # 忽略相应关系的标签
         self.label2ignore = -1
@@ -48,7 +51,12 @@ class GLREDataset(Dataset):
 
         self.singletons = []
 
-        self.documents, self.entities, self.pairs = [], OrderedDict(), OrderedDict()
+        # 每篇文档的id以及文档的句子 [{"doc_id":id,"text":[sentences]}]
+        self.documents = []
+        # 每篇文档出现的实体 {doc_id:{entity_id:{entity_info_dict}}}
+        self.entities = OrderedDict() 
+        # 每篇文档中关系pair对信息 {doc_id:{(head_id,tail_id):[{rel:rel_value,dir:dir_value,dis:dis_value}]}}
+        self.pairs = OrderedDict() 
 
         # 将距离分为9组
         self.dis2idx_dir = np.zeros((800), dtype='int64') # distance feature
@@ -66,8 +74,10 @@ class GLREDataset(Dataset):
 
         with open(filename,'r') as f:
             lines = json.load(f)
-        lengths, sents, entities_cor_id = self.preprocess(lines)
+        self.preprocess(lines)
         self.lowercase = True
+
+        self.find_singletons()
 
 
     def preprocess(self,lines):
@@ -79,10 +89,9 @@ class GLREDataset(Dataset):
         sents = []
         doc_id = -1
         document_meta = []
-        entities_cor_id = {}
+        self.entities_cor_id = {}
         for line in tqdm(lines):
             text_meta = {}
-            documents = {}
             line = json.loads(line)
             doc_id += 1
             towrite_meta = str(doc_id) + "\t"  # pmid 0
@@ -145,7 +154,7 @@ class GLREDataset(Dataset):
                     # 在当前句子中位置信息
                     vertexSet[j][k]['s_pos'] = (pos1, pos2)
 
-            # 组合成训练的标签
+            # 组合gold 的实体pair对标签
             labels = line.get('labels', [])
             train_triple = set([])
             towrite = ""
@@ -252,27 +261,27 @@ class GLREDataset(Dataset):
             
                 # entities
                 if head_ent_info['id'] not in self.entities[doc_id]:
-                    self.entities[doc_id][head_ent_info['index']] = head_ent_info
-                    entities_dist.append((head_ent_info['index'], min([int(a) for a in head_ent_info["mstart"]])))
+                    self.entities[doc_id][head_ent_info['id']] = head_ent_info
+                    # 实体id及其最小的index
+                    entities_dist.append((head_ent_info['id'], min([int(a) for a in head_ent_info["mstart"]])))
 
                 if tail_ent_info['id'] not in self.entities[doc_id]:
-                    self.entities[doc_id][tail_ent_info['index']] = tail_ent_info
-                    entities_dist.append((tail_ent_info['index'], min([int(a) for a in tail_ent_info["mstart"]])))
+                    self.entities[doc_id][tail_ent_info['id']] = tail_ent_info
+                    # 实体id及其最小的index
+                    entities_dist.append((tail_ent_info['id'], min([int(a) for a in tail_ent_info["mstart"]])))
 
                 entity_pair_dis = get_distance(head_ent_info["sentNo"] , tail_ent_info["sentNo"])
                 if (head_ent_info['id'], tail_ent_info['id']) not in self.pairs[doc_id]:
                     self.pairs[doc_id][(head_ent_info['id'], tail_ent_info['id'])] = [self.PairInfo(rel, dir, entity_pair_dis)]
-
                 else:
                     self.pairs[doc_id][(head_ent_info['id'], tail_ent_info['id'])].append(self.PairInfo(rel, dir, entity_pair_dis))
 
             entities_dist.sort(key=lambda x: x[1], reverse=False)
-            entities_cor_id[doc_id] = {}
+            self.entities_cor_id[doc_id] = {}
             for coref_id, key in enumerate(entities_dist):
-                entities_cor_id[doc_id][key[0]] = coref_id + 1
+                self.entities_cor_id[doc_id][key[0]] = coref_id + 1
 
             text_meta['label'] = label_metas
-    
             document_meta.append(text_meta)
 
         for did, p in self.pairs.items():
@@ -284,8 +293,6 @@ class GLREDataset(Dataset):
         # map types and positions and relation types
         for d in self.documents:
             self.add_document(d['text'])
-
-        return lengths, sents, entities_cor_id
 
     def add_document(self, document):
         for sentence in document:
@@ -307,7 +314,6 @@ class GLREDataset(Dataset):
             if word not in self.word2count:
                 self.word2count[word] = 0
             self.word2count[word] += 1
-
 
     def find_max_length(self, length):
         """ Maximum distance between words """
@@ -334,6 +340,38 @@ class GLREDataset(Dataset):
         self.singletons = frozenset([elem for elem, val in self.word2count.items()
                                      if (val <= min_w_freq) and elem != 'UNK'])
 
+    def flatten(self, list_of_lists):
+        for list in list_of_lists:
+            for item in list:
+                yield item
+
+    def subword_tokenize(self, tokens):
+        """Segment each token into subwords while keeping track of
+        token boundaries.
+        Parameters
+        ----------
+        tokens: A sequence of strings, representing input tokens.
+        Returns
+        -------
+        A tuple consisting of:
+            - A list of subwords, flanked by the special symbols required
+                by Bert (CLS and SEP).
+            - An array of indices into the list of subwords, indicating
+                that the corresponding subword is the start of a new
+                token. For example, [1, 3, 4, 7] means that the subwords
+                1, 3, 4, 7 are token starts, while all other subwords
+                (0, 2, 5, 6, 8...) are in or at the end of tokens.
+                This list allows selecting Bert hidden states that
+                represent tokens, which is necessary in sequence
+                labeling.
+        """
+        subwords = list(map(self.tokenizer.tokenize, tokens))
+        subword_lengths = list(map(len, subwords))
+        subwords = [self.CLS] + list(self.flatten(subwords))[:509] + [self.SEP]
+        token_start_idxs = 1 + np.cumsum([0] + subword_lengths[:-1])
+        token_start_idxs[token_start_idxs > 509] = 509
+        return subwords, token_start_idxs
+
     def __len__(self):
         return len(self.documents)
     
@@ -341,15 +379,12 @@ class GLREDataset(Dataset):
         document = self.documents[index]
         pmid = document['pmid']
         sentences = document['text']
-        prune_recall = {"0-max":0, "0-1":0, "0-3":0, "1-3":0, "1-max":0, "3-max":0}
         # TEXT
         doc = []
         sens_len = []
         words = []
-        start_idx = 0
         for i, sentence in enumerate(sentences):
             words += sentence
-            start_idx += len(sentence)
             sent = []
             if self.is_training:
                 for w, word in enumerate(sentence):
@@ -361,7 +396,6 @@ class GLREDataset(Dataset):
                         sent += [self.word2index['UNK']]
                     else:
                         sent += [self.word2index[word]]
-
             else:
                 for w, word in enumerate(sentence):
                     if self.lowercase:
@@ -373,8 +407,11 @@ class GLREDataset(Dataset):
             assert len(sentence) == len(sent), '{}, {}'.format(len(sentence), len(sent))
             doc += [sent]
             sens_len.append(len(sent))
-
-        bert_token, bert_mask, bert_starts = self.bert.subword_tokenize_to_ids(words)
+        # 子词，取每个token的起始位置
+        subwords, bert_starts = self.subword_tokenize(words)
+        # 子词 ids
+        bert_token = self.tokenizer.convert_tokens_to_ids(subwords)
+        bert_mask = np.ones(len(bert_token)) # 子词的mask
 
         # NER
         # ner = [0] * sum(sens_len)
@@ -386,41 +423,51 @@ class GLREDataset(Dataset):
         # ENTITIES [id, type, start, end] + NODES [id, type, start, end, node_type_id]
         nodes = []
         ent = []
+        # 实体节点信息
+        # 文本的实体数量以及文本的句子数量组合的矩阵
         ent_sen_mask = np.zeros((len(self.entities[pmid].items()), len(sens_len)), dtype=np.float32)
         for id_, (e, i) in enumerate(self.entities[pmid].items()):
+            # id_,实体类型，实体在文档中第一次出现的start index，第一次出现的end index，第一次出现的句子id，节点类型id
             nodes += [[id_, self.type2index[i['type'][0]], min([int(ms) for ms in i['mstart']]),
                         min([int(me) for me in i['mend']]), int(i['sentNo'][0]), 0]]
-
-            for sen_id in i.sentNo:
+            for sen_id in i['sentNo']:
                 ent_sen_mask[id_][int(sen_id)] = 1.0
         entity_size = len(nodes)
 
+        # mention节点信息
         nodes_mention = []
         for id_, (e, i) in enumerate(self.entities[pmid].items()):
             for sent_id, m1, m2 in zip(i['sentNo'], i['mstart'], i['mend']):
                 ent += [[id_, self.type2index[i['type'][0]], int(m1), int(m2), int(sent_id), 1]]
+                # id_,实体类型，实体start index，end index，句子id，节点类型id
                 nodes_mention += [[id_, self.type2index[i['type'][0]], int(m1), int(m2), int(sent_id), 1]]
 
         ent.sort(key=lambda x: x[0], reverse=False)
         nodes_mention.sort(key=lambda x: x[0], reverse=False)
         nodes += nodes_mention
-
+        
+        # 句子节点信息
         for s, sentence in enumerate(sentences):
             nodes += [[s, s, s, s, s, 2]]
 
+        # 所有节点信息
         nodes = np.array(nodes)
 
-        max_node_cnt = max(max_node_cnt, nodes.shape[0])
+        # 所有mention 实体信息
         ent = np.array(ent)
 
         # RELATIONS
+        # 实体
         ents_keys = list(self.entities[pmid].keys())  # in order
+        # 两两实体只存在一个关系
         trel = -1 * np.ones((len(ents_keys), len(ents_keys)))
+        # 两两实体存在多个关系
         relation_multi_label = np.zeros((len(ents_keys), len(ents_keys), self.n_rel))
+
         rel_info = np.empty((len(ents_keys), len(ents_keys)), dtype='object_')
         for id_, (r, ii) in enumerate(self.pairs[pmid].items()):
-            rt = np.random.randint(len(ii))
-            trel[ents_keys.index(r[0]), ents_keys.index(r[1])] = self.rel2index[ii[0].type]
+            rt = np.random.randint(len(ii)) # 随机选择一个关系
+            trel[ents_keys.index(r[0]), ents_keys.index(r[1])] = self.rel2index[ii[0].type] # 关系类型
             relation_set = set()
             for i in ii:
                 assert relation_multi_label[ents_keys.index(r[0]), ents_keys.index(r[1]), self.rel2index[i.type]] != 1.0
@@ -430,122 +477,117 @@ class GLREDataset(Dataset):
                     assert relation_multi_label[ents_keys.index(r[0]), ents_keys.index(r[1]), self.rel2index[self.ign_label]] != 1.0
                 relation_set.add(self.rel2index[i.type])
 
-                if i.type != self.ign_label:
-                    dis_cross = int(i.cross)
-                    if dis_cross == 0:
-                        prune_recall['0-1'] += 1
-                        prune_recall['0-3'] += 1
-                        prune_recall['0-max'] += 1
-                    elif dis_cross < 3:
-                        prune_recall['0-3'] += 1
-                        prune_recall['1-3'] += 1
-                        prune_recall['1-max'] += 1
-                        prune_recall['0-max'] += 1
-                    else:
-                        prune_recall['0-max'] += 1
-                        prune_recall['3-max'] += 1
-                        prune_recall['1-max'] += 1
-
             rel_info[ents_keys.index(r[0]), ents_keys.index(r[1])] = OrderedDict(
-                                                                        [('pmid', pmid),
-                                                                        ('sentA', self.entities[pmid][r[0]]['sentNo']),
-                                                                        ('sentB',
-                                                                        self.entities[pmid][r[1]]['sentNo']),
-                                                                        ('doc', self.documents[pmid]),
-                                                                        ('entA', self.entities[pmid][r[0]]),
-                                                                        ('entB', self.entities[pmid][r[1]]),
-                                                                        ('rel', relation_set),
+                                                                        [('pmid', pmid), # 文档id
+                                                                        ('sentA', self.entities[pmid][r[0]]['sentNo']), # 实体head所处的句子id
+                                                                        ('sentB',self.entities[pmid][r[1]]['sentNo']), # 实体tail所处的句子id
+                                                                        ('doc', self.documents[pmid]), # 文档文本
+                                                                        ('entA', self.entities[pmid][r[0]]), # 实体head的信息
+                                                                        ('entB', self.entities[pmid][r[1]]), # 实体tail的心
+                                                                        ('rel', relation_set), # 两个实体存在的关系集
                                                                         ('dir', ii[rt].direction),
                                                                         ('cross', ii[rt].cross)])
 
             assert nodes[ents_keys.index(r[0])][2] == min([int(ms) for ms in self.entities[pmid][r[0]]['mstart']])
 
+        #######################
+        # DISTANCES
+        #######################
+        # meshgrid函数就是用两个坐标轴上的点在平面上画网格。如果我们传入三个参数，那么可以用三个一维的坐标轴上的点在三维平面上画网格。
+        xv, yv = np.meshgrid(np.arange(nodes.shape[0]), np.arange(nodes.shape[0]), indexing='ij') # xv与yv是相互矩阵的转置
 
-            #######################
-            # DISTANCES
-            #######################
-            xv, yv = np.meshgrid(np.arange(nodes.shape[0]), np.arange(nodes.shape[0]), indexing='ij')
+        r_id, c_id = nodes[xv, 5], nodes[yv, 5]  #  取出节点类型,生成xv相同的矩阵
+        r_Eid, c_Eid = nodes[xv, 0], nodes[yv, 0] # 取出节点id
+        r_Sid, c_Sid = nodes[xv, 4], nodes[yv, 4] # 节点所在句子id
+        r_Ms, c_Ms = nodes[xv, 2], nodes[yv, 2] # 节点实体的start
+        r_Me, c_Me = nodes[xv, 3]-1, nodes[yv, 3]-1
 
-            r_id, c_id = nodes[xv, 5], nodes[yv, 5]  # node type
-            r_Eid, c_Eid = nodes[xv, 0], nodes[yv, 0]
-            r_Sid, c_Sid = nodes[xv, 4], nodes[yv, 4]
-            r_Ms, c_Ms = nodes[xv, 2], nodes[yv, 2]
-            r_Me, c_Me = nodes[xv, 3]-1, nodes[yv, 3]-1
+        # dist feature
+        dist_dir_h_t = np.full((r_id.shape[0], r_id.shape[0]), 0)
 
-            # dist feature
-            dist_dir_h_t = np.full((r_id.shape[0], r_id.shape[0]), 0)
+        # MM: mention-mention
+        # 矩阵中的逻辑或操作，r_id的节点类型为1或者3，且c_id的节点类型为1或3，如果为true，那么该位置的值为节点实体的start，否则为-1
+        a_start = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3), r_Ms, -1)
+        b_start = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3), c_Ms, -1)
 
-            # MM: mention-mention
-            a_start = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3), r_Ms, -1)
-            b_start = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3), c_Ms, -1)
+        # 两两mention的距离
+        dis = a_start - b_start
+        # 将mention之间的距离转换为距离段
+        dis_index = np.where(dis < 0, -self.dis2idx_dir[-dis], self.dis2idx_dir[dis])
+        condition = (np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3)
+                                & (a_start != -1) & (b_start != -1))
+        dist_dir_h_t = np.where(condition, dis_index, dist_dir_h_t)
 
-            dis = a_start - b_start
-            dis_index = np.where(dis < 0, -self.dis2idx_dir[-dis], self.dis2idx_dir[dis])
-            condition = (np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3)
-                                 & (a_start != -1) & (b_start != -1))
-            dist_dir_h_t = np.where(condition, dis_index, dist_dir_h_t)
+        # EE: entity-entity
+        a_start = np.where((r_id == 0) & (c_id == 0), r_Ms, -1)
+        b_start = np.where((r_id == 0) & (c_id == 0), c_Ms, -1)
+        # 两两实体的距离
+        dis = a_start - b_start
+        dis_index = np.where(dis < 0, -self.dis2idx_dir[-dis], self.dis2idx_dir[dis])
+        condition = ((r_id == 0) & (c_id == 0) & (a_start != -1) & (b_start != -1))
+        dist_dir_h_t = np.where(condition, dis_index, dist_dir_h_t)
 
-            # EE: entity-entity
-            a_start = np.where((r_id == 0) & (c_id == 0), r_Ms, -1)
-            b_start = np.where((r_id == 0) & (c_id == 0), c_Ms, -1)
-            dis = a_start - b_start
+        #######################
+        # GRAPH CONNECTIONS
+        #######################
+        adjacency = np.full((r_id.shape[0], r_id.shape[0]), 0, 'i')
+        # 5种边的类型
+        rgcn_adjacency = np.full((5, r_id.shape[0], r_id.shape[0]), 0.0)
 
-            dis_index = np.where(dis < 0, -self.dis2idx_dir[-dis], self.dis2idx_dir[dis])
-            condition = ((r_id == 0) & (c_id == 0) & (a_start != -1) & (b_start != -1))
-            dist_dir_h_t = np.where(condition, dis_index, dist_dir_h_t)
+        # mention-mention
+        # (r_Sid == c_Sid) 是将对角线上的值为1，那么整体就是将两两mention对角线上的值置为1
+        adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)  # in same sentence
+        rgcn_adjacency[0] = np.where(
+                np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1,
+                rgcn_adjacency[0])
 
-            #######################
-            # GRAPH CONNECTIONS
-            #######################
-            adjacency = np.full((r_id.shape[0], r_id.shape[0]), 0, 'i')
-            rgcn_adjacency = np.full((5, r_id.shape[0], r_id.shape[0]), 0.0)
+        # entity-mention
+        adjacency = np.where((r_id == 0) & (c_id == 1) & (r_Eid == c_Eid), 1, adjacency)  # belongs to entity
+        adjacency = np.where((r_id == 1) & (c_id == 0) & (r_Eid == c_Eid), 1, adjacency)
+        rgcn_adjacency[1] = np.where((r_id == 0) & (c_id == 1) & (r_Eid == c_Eid), 1, rgcn_adjacency[1])  # belongs to entity
+        rgcn_adjacency[1] = np.where((r_id == 1) & (c_id == 0) & (r_Eid == c_Eid), 1, rgcn_adjacency[1])
 
-            # mention-mention
-            adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)  # in same sentence
-            rgcn_adjacency[0] = np.where(
-                    np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1,
-                    rgcn_adjacency[0])
+        # sentence-sentence (direct + indirect)
+        adjacency = np.where((r_id == 2) & (c_id == 2), 1, adjacency)
+        rgcn_adjacency[2] = np.where((r_id == 2) & (c_id == 2), 1, rgcn_adjacency[2])
 
-            # entity-mention
-            adjacency = np.where((r_id == 0) & (c_id == 1) & (r_Eid == c_Eid), 1, adjacency)  # belongs to entity
-            adjacency = np.where((r_id == 1) & (c_id == 0) & (r_Eid == c_Eid), 1, adjacency)
-            rgcn_adjacency[1] = np.where((r_id == 0) & (c_id == 1) & (r_Eid == c_Eid), 1, rgcn_adjacency[1])  # belongs to entity
-            rgcn_adjacency[1] = np.where((r_id == 1) & (c_id == 0) & (r_Eid == c_Eid), 1, rgcn_adjacency[1])
+        # mention-sentence
+        adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & (c_id == 2) & (r_Sid == c_Sid), 1, adjacency)  # belongs to sentence
+        adjacency = np.where((r_id == 2) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)
+        rgcn_adjacency[3] = np.where(np.logical_or(r_id == 1, r_id == 3) & (c_id == 2) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])  # belongs to sentence
+        rgcn_adjacency[3] = np.where((r_id == 2) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])
 
-            # sentence-sentence (direct + indirect)
-            adjacency = np.where((r_id == 2) & (c_id == 2), 1, adjacency)
-            rgcn_adjacency[2] = np.where((r_id == 2) & (c_id == 2), 1, rgcn_adjacency[2])
+        # entity-sentence
+        for x, y in zip(xv.ravel(), yv.ravel()):
+            if nodes[x, 5] == 0 and nodes[y, 5] == 2:  # this is an entity-sentence edge
+                z = np.where((r_Eid == nodes[x, 0]) & (r_id == 1) & (c_id == 2) & (c_Sid == nodes[y, 4]))
 
-            # mention-sentence
-            adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & (c_id == 2) & (r_Sid == c_Sid), 1, adjacency)  # belongs to sentence
-            adjacency = np.where((r_id == 2) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)
-            rgcn_adjacency[3] = np.where(np.logical_or(r_id == 1, r_id == 3) & (c_id == 2) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])  # belongs to sentence
-            rgcn_adjacency[3] = np.where((r_id == 2) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, rgcn_adjacency[3])
+                # at least one M in S
+                temp_ = np.where((r_id == 1) & (c_id == 2) & (r_Sid == c_Sid), 1, adjacency)
+                temp_ = np.where((r_id == 2) & (c_id == 1) & (r_Sid == c_Sid), 1, temp_)
+                adjacency[x, y] = 1 if (temp_[z] == 1).any() else 0
+                adjacency[y, x] = 1 if (temp_[z] == 1).any() else 0
+                rgcn_adjacency[4][x, y] = 1 if (temp_[z] == 1).any() else 0
+                rgcn_adjacency[4][y, x] = 1 if (temp_[z] == 1).any() else 0
 
-            # entity-sentence
-            for x, y in zip(xv.ravel(), yv.ravel()):
-                if nodes[x, 5] == 0 and nodes[y, 5] == 2:  # this is an entity-sentence edge
-                    z = np.where((r_Eid == nodes[x, 0]) & (r_id == 1) & (c_id == 2) & (c_Sid == nodes[y, 4]))
+        rgcn_adjacency = sparse_mxs_to_torch_sparse_tensor([sp.coo_matrix(rgcn_adjacency[i]) for i in range(5)])
 
-                    # at least one M in S
-                    temp_ = np.where((r_id == 1) & (c_id == 2) & (r_Sid == c_Sid), 1, adjacency)
-                    temp_ = np.where((r_id == 2) & (c_id == 1) & (r_Sid == c_Sid), 1, temp_)
-                    adjacency[x, y] = 1 if (temp_[z] == 1).any() else 0
-                    adjacency[y, x] = 1 if (temp_[z] == 1).any() else 0
-                    rgcn_adjacency[4][x, y] = 1 if (temp_[z] == 1).any() else 0
-                    rgcn_adjacency[4][y, x] = 1 if (temp_[z] == 1).any() else 0
+        dist_dir_h_t = dist_dir_h_t[0: entity_size, 0:entity_size]
+        data = {'ents': ent, 
+                'rels': trel, 
+                'multi_rels': relation_multi_label,
+                'dist_dir': dist_dir_h_t, 
+                'text': doc, 
+                'info': rel_info,
+                'adjacency': adjacency, 
+                'rgcn_adjacency': rgcn_adjacency,
+                'section': np.array([len(self.entities[pmid].items()), ent.shape[0], len(doc), sum([len(s) for s in doc])]),
+                'word_sec': np.array([len(s) for s in doc]),
+                'bert_token': bert_token, 
+                'bert_mask': bert_mask, 
+                'bert_starts': bert_starts}
 
-            rgcn_adjacency = sparse_mxs_to_torch_sparse_tensor([sp.coo_matrix(rgcn_adjacency[i]) for i in range(5)])
-
-            dist_dir_h_t = dist_dir_h_t[0: entity_size, 0:entity_size]
-            data = {'ents': ent, 'rels': trel, 'multi_rels': relation_multi_label,
-                           'dist_dir': dist_dir_h_t, 'text': doc, 'info': rel_info,
-                           'adjacency': adjacency, 'rgcn_adjacency': rgcn_adjacency,
-                           'section': np.array([len(self.entities[pmid].items()), ent.shape[0], len(doc), sum([len(s) for s in doc])]),
-                           'word_sec': np.array([len(s) for s in doc]),
-                            'bert_token': bert_token, 'bert_mask': bert_mask, 'bert_starts': bert_starts}
-
-        return data, prune_recall
+        return data
 
 
 
