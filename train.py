@@ -24,10 +24,6 @@ def parser_args():
                         default="./data/data/NYT/train_triples.json", help='specify the train path')
     parser.add_argument('--val_file', type=str,
                         default="./data/data/NYT/dev_triples.json", help='specify the dev path')
-    parser.add_argument('--test_path', type=str,
-                        default="./data/data/NYT/test_triples.json", help='specify the test path')
-    parser.add_argument('--bert_dir', type=str,
-                        help='specify the pre-trained bert model')
     parser.add_argument('--learning_rate', default=5e-5,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -122,11 +118,11 @@ def parser_args():
 def main():
     args = parser_args()
     if args.model_type == "tdeer":
-        from TDeer import TDEERPytochLighting,TDEERDataset, collate_fn, collate_fn_val
-        train_dataset = TDEERDataset(args.train_file, args, is_training=True)
+        from TDeer import TDEERPytochLighting, TDEERDataset, collate_fn, collate_fn_val
+        train_dataset = TDEERDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = TDEERDataset(args.val_file, args, is_training=False)
+        val_dataset = TDEERDataset(args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
 
@@ -136,7 +132,7 @@ def main():
         model = TDEERPytochLighting(args)
 
     elif args.model_type == "tplinker":
-        from TPlinker import  TPlinkerPytochLighting,TPlinkerDataset,HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
+        from TPlinker import TPlinkerPytochLighting, TPlinkerDataset, HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
@@ -171,17 +167,17 @@ def main():
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
-        from PRGC import PRGCPytochLighting,PRGCDataset, collate_fn_test, collate_fn_train
+        from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_seq_len = max_length
 
-        train_dataset = PRGCDataset(args, args.train_file, is_training=True)
+        train_dataset = PRGCDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = PRGCDataset(args, args.val_file, is_training=False)
+        val_dataset = PRGCDataset(args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
 
@@ -190,16 +186,16 @@ def main():
         model = PRGCPytochLighting(args)
 
     elif args.model_type == "span4re":
-        from SPN4RE import Span4REPytochLighting, Span4REDataset,collate_fn
+        from SPN4RE import Span4REPytochLighting, Span4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         max_length = statistics_text_length(args.train_file, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_span_length = max_length
-        train_dataset = Span4REDataset(args.train_file, args, is_training=True)
+        train_dataset = Span4REDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = Span4REDataset(args.val_file, args, is_training=False)
+        val_dataset = Span4REDataset(args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
 
@@ -210,12 +206,12 @@ def main():
 
     elif args.model_type == "one4rel":
         from OneRel import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
-        train_dataset = OneRelDataset(args.train_file, args, is_training=True)
+        train_dataset = OneRelDataset(args, is_training=True)
         relation_number = train_dataset.relation_size
-        new_collate_fn = lambda x:collate_fn(x,relation_number)
+        def new_collate_fn(x): return collate_fn(x, relation_number)
         train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8)
-        val_dataset = OneRelDataset(args.val_file, args, is_training=False)
+        val_dataset = OneRelDataset(args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
 
@@ -223,6 +219,22 @@ def main():
         args.tag_size = len(TAG2ID)
         args.steps = len(train_dataset)
         model = OneRelPytochLighting(args)
+
+    elif args.model_type == "glre":
+        from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
+        train_dataset = GLREDataset(args, is_training=True)
+        relation_number = train_dataset.relation_size
+        def new_collate_fn(x): return collate_fn(x, relation_number)
+        train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
+                                      batch_size=args.batch_size, shuffle=True, num_workers=8)
+        val_dataset = GLREDataset(args, is_training=False)
+        val_dataloader = DataLoader(
+            val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
+
+        args.relation_number = relation_number
+        args.tag_size = len(TAG2ID)
+        args.steps = len(train_dataset)
+        model = GLREModuelPytochLighting(args)
 
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")

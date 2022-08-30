@@ -8,6 +8,7 @@
 @Desc    :   None
 '''
 
+import os
 import torch
 import json
 import random
@@ -20,7 +21,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 class OneRelDataset(Dataset):
-    def __init__(self, filename, args, is_training):
+    def __init__(self, args, is_training):
         self.tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         with open(args.relation, 'r') as f:
@@ -29,6 +30,11 @@ class OneRelDataset(Dataset):
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
         self.args = args
+        if is_training:
+            filename = os.path.join(args.data_dir, "train_triples.json")
+        else:
+            filename = os.path.join(args.data_dir, "dev_triples.json")
+
         with open(filename, 'r') as f:
             lines = json.load(f)
 
@@ -42,12 +48,14 @@ class OneRelDataset(Dataset):
         for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
-            tokens = [self.tokenizer.cls_token]+ tokens + [self.tokenizer.sep_token]
+            tokens = [self.tokenizer.cls_token] + \
+                tokens + [self.tokenizer.sep_token]
             if len(tokens) > 512:
                 tokens = tokens[: 512]
             text_len = len(tokens)
 
-            token_output = self.tokenizer(root_text,return_offsets_mapping=True)
+            token_output = self.tokenizer(
+                root_text, return_offsets_mapping=True)
             token_ids = token_output['input_ids']
             masks = token_output['attention_mask']
             offset_mapping = token_output['offset_mapping']
@@ -58,7 +66,7 @@ class OneRelDataset(Dataset):
             masks = np.array(masks)
             loss_masks = masks
             triple_matrix = np.zeros((self.relation_size, text_len, text_len))
-            datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
+            datas.append([token_ids, masks, loss_masks, text_len, offset_mapping,
                          triple_matrix, self.lower(line['triple_list']), tokens, root_text.lower()])
         return datas
 
@@ -67,17 +75,20 @@ class OneRelDataset(Dataset):
         for line in tqdm(lines):
             root_text = line['text']
             tokens = self.tokenizer.tokenize(root_text)
-            tokens = [self.tokenizer.cls_token]+ tokens + [self.tokenizer.sep_token]
+            tokens = [self.tokenizer.cls_token] + \
+                tokens + [self.tokenizer.sep_token]
             if len(tokens) > 512:
                 tokens = tokens[: 512]
             text_len = len(tokens)
             s2ro_map = {}
             for triple in line['triple_list']:
-                triple = (self.tokenizer.tokenize(triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
-                sub_head_idx = find_head_idx(tokens, triple[0],0)
-                obj_head_idx = find_head_idx(tokens, triple[2],sub_head_idx + len(triple[0]))
+                triple = (self.tokenizer.tokenize(
+                    triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
+                sub_head_idx = find_head_idx(tokens, triple[0], 0)
+                obj_head_idx = find_head_idx(
+                    tokens, triple[2], sub_head_idx + len(triple[0]))
                 if obj_head_idx == -1:
-                    obj_head_idx = find_head_idx(tokens, triple[2],0)
+                    obj_head_idx = find_head_idx(tokens, triple[2], 0)
                 if sub_head_idx != -1 and obj_head_idx != -1:
                     sub = (sub_head_idx, sub_head_idx + len(triple[0]) - 1)
                     if sub not in s2ro_map:
@@ -86,7 +97,8 @@ class OneRelDataset(Dataset):
                         (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
-                token_output = self.tokenizer(root_text,return_offsets_mapping=True)
+                token_output = self.tokenizer(
+                    root_text, return_offsets_mapping=True)
                 token_ids = token_output['input_ids']
                 masks = token_output['attention_mask']
                 offset_mapping = token_output['offset_mapping']
@@ -110,13 +122,13 @@ class OneRelDataset(Dataset):
                         # 当object和subject都相同时，该位置赋值为HB-TB
                         triple_matrix[relation][sub_tail][obj_tail] = TAG2ID['HE-TE']
                         triple_matrix[relation][sub_head][obj_tail] = TAG2ID['HB-TE']
-                        triple_matrix[relation][sub_head][obj_head] = TAG2ID['HB-TB'] 
+                        triple_matrix[relation][sub_head][obj_head] = TAG2ID['HB-TB']
 
-                datas.append([token_ids, masks, loss_masks, text_len,offset_mapping,
+                datas.append([token_ids, masks, loss_masks, text_len, offset_mapping,
                              triple_matrix, self.lower(line['triple_list']), tokens, root_text.lower()])
         return datas
 
-    def lower(self,triples):
+    def lower(self, triples):
         lower_triples = []
         for line in triples:
             line = [l.lower() for l in line]
@@ -133,7 +145,7 @@ class OneRelDataset(Dataset):
 def collate_fn(batch, rel_num):
     batch = list(filter(lambda x: x is not None, batch))
     batch.sort(key=lambda x: x[3], reverse=True)
-    token_ids, masks, loss_masks, text_len,offset_mappings, triple_matrix, triples, tokens, texts = zip(
+    token_ids, masks, loss_masks, text_len, offset_mappings, triple_matrix, triples, tokens, texts = zip(
         *batch)
     cur_batch_len = len(batch)
     max_text_len = max(text_len)
@@ -160,6 +172,4 @@ def collate_fn(batch, rel_num):
             'triples': triples,
             'tokens': tokens,
             "texts": texts,
-            "offset_map":offset_mappings}
-
-
+            "offset_map": offset_mappings}

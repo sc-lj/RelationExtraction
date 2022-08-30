@@ -7,6 +7,7 @@
 @License :   (C)Copyright 2021-2022, Liugroup-NLPR-CASIA
 @Desc    :   None
 '''
+import os
 import torch
 import json
 import random
@@ -15,8 +16,9 @@ from tqdm import tqdm
 from utils.utils import find_head_idx
 from collections import defaultdict
 from torch.utils.data import DataLoader, Dataset
-from PRGC.utils import Label2IdxSub,Label2IdxObj
+from PRGC.utils import Label2IdxSub, Label2IdxObj
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
+
 
 class InputExample(object):
     """a single set of samples of data
@@ -30,23 +32,29 @@ class InputExample(object):
 
 
 class PRGCDataset(Dataset):
-    def __init__(self,args,filename,is_training):
+    def __init__(self, args, is_training):
         super().__init__()
         self.args = args
-        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path,cache_dir = "./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(
+            args.pretrain_path, cache_dir="./bertbaseuncased")
         self.is_training = is_training
         self.batch_size = args.batch_size
-        with open(args.relation,'r') as f:
+        with open(args.relation, 'r') as f:
             relation = json.load(f)
         self.rel2id = relation[1]
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
         self.max_sample_triples = args.max_sample_triples
-        with open(filename,'r') as f:
+        if is_training:
+            filename = os.path.join(args.data_dir, "train_triples.json")
+        else:
+            filename = os.path.join(args.data_dir, "dev_triples.json")
+
+        with open(filename, 'r') as f:
             lines = json.load(f)
         self.datas = self.preprocess(lines)
-    
-    def preprocess(self,lines):
+
+    def preprocess(self, lines):
         examples = []
         for sample in lines:
             text = sample['text']
@@ -58,7 +66,8 @@ class PRGCDataset(Dataset):
                 en_pair_list.append([triple[0], triple[-1]])
                 re_list.append(self.rel2id[triple[1]])
                 rel2ens[self.rel2id[triple[1]]].append((triple[0], triple[-1]))
-            example = InputExample(text=text, en_pair_list=en_pair_list, re_list=re_list, rel2ens=rel2ens)
+            example = InputExample(
+                text=text, en_pair_list=en_pair_list, re_list=re_list, rel2ens=rel2ens)
             examples.append(example)
         max_text_len = self.args.max_seq_len
         # multi-process
@@ -68,14 +77,13 @@ class PRGCDataset(Dataset):
         #     features = p.map(func=convert_func, iterable=examples)
         # # return list(chain(*features))
         features = []
-        for example in tqdm(examples,desc="convert example"):
-            feature = self.convert(example,max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
-                                            ensure_rel=self.args.ensure_rel,num_negs=self.args.num_negs)
+        for example in tqdm(examples, desc="convert example"):
+            feature = self.convert(example, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
+                                   ensure_rel=self.args.ensure_rel, num_negs=self.args.num_negs)
             features.extend(feature)
         return features
-    
 
-    def convert(self,example: InputExample, max_text_len: int, tokenizer, rel2idx, ensure_rel,num_negs):
+    def convert(self, example: InputExample, max_text_len: int, tokenizer, rel2idx, ensure_rel, num_negs):
         """转换函数 for CarFaultRelation data
         Args:
             example (_type_): 一个样本示例
@@ -131,11 +139,11 @@ class PRGCDataset(Dataset):
                         if sub_head + len(sub) <= max_text_len:
                             tags_sub[sub_head] = Label2IdxSub['B-H']
                             tags_sub[sub_head + 1:sub_head +
-                                    len(sub)] = (len(sub) - 1) * [Label2IdxSub['I-H']]
+                                     len(sub)] = (len(sub) - 1) * [Label2IdxSub['I-H']]
                         if obj_head + len(obj) <= max_text_len:
                             tags_obj[obj_head] = Label2IdxObj['B-T']
                             tags_obj[obj_head + 1:obj_head +
-                                    len(obj)] = (len(obj) - 1) * [Label2IdxObj['I-T']]
+                                     len(obj)] = (len(obj) - 1) * [Label2IdxObj['I-T']]
                 # 相同关系下的所有subject和object对
                 seq_tag = [tags_sub, tags_obj]
 
@@ -154,7 +162,8 @@ class PRGCDataset(Dataset):
             # relation judgement ablation
             if not ensure_rel:
                 # negative samples, 采样一些负样本的关系数据集
-                neg_rels = set(rel2idx.values()).difference(set(example.re_list))
+                neg_rels = set(rel2idx.values()).difference(
+                    set(example.re_list))
                 neg_rels = random.sample(neg_rels, k=num_negs)
                 for neg_rel in neg_rels:
                     # init，针对关系的负样本，只对subject和object的序列全部置为O，其他的沿用正样本的数据
@@ -195,14 +204,14 @@ class PRGCDataset(Dataset):
         # get sub-feats
         return sub_feats
 
-    def _get_so_head(self,en_pair, tokenizer, text_tokens):
+    def _get_so_head(self, en_pair, tokenizer, text_tokens):
         sub = tokenizer.tokenize(en_pair[0])
         obj = tokenizer.tokenize(en_pair[1])
-        subj_head_idx = find_head_idx(text_tokens, sub,0)
+        subj_head_idx = find_head_idx(text_tokens, sub, 0)
         subj_tail_idx = subj_head_idx + len(sub) - 1
-        obj_head_idx = find_head_idx(text_tokens, obj,subj_tail_idx+1)
+        obj_head_idx = find_head_idx(text_tokens, obj, subj_tail_idx+1)
         if obj_head_idx == -1:
-            obj_head_idx = find_head_idx(text_tokens, obj,0)
+            obj_head_idx = find_head_idx(text_tokens, obj, 0)
         return subj_head_idx, obj_head_idx, sub, obj
 
     def __len__(self):
@@ -218,7 +227,8 @@ class InputFeatures(object):
     Desc:
         a single set of features of data
     """
-    def __init__(self,input_tokens,input_ids,attention_mask,seq_tag=None,corres_tag=None,relation=None,triples=None,rel_tag=None):
+
+    def __init__(self, input_tokens, input_ids, attention_mask, seq_tag=None, corres_tag=None, relation=None, triples=None, rel_tag=None):
         self.input_tokens = input_tokens
         self.input_ids = input_ids
         self.attention_mask = attention_mask
@@ -237,12 +247,16 @@ def collate_fn_train(features):
         tensors (List[Tensors])
     """
     input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+    attention_mask = torch.tensor(
+        [f.attention_mask for f in features], dtype=torch.long)
     seq_tags = torch.tensor([f.seq_tag for f in features], dtype=torch.long)
-    poten_relations = torch.tensor([f.relation for f in features], dtype=torch.long)
-    corres_tags = torch.tensor([f.corres_tag for f in features], dtype=torch.long)
+    poten_relations = torch.tensor(
+        [f.relation for f in features], dtype=torch.long)
+    corres_tags = torch.tensor(
+        [f.corres_tag for f in features], dtype=torch.long)
     rel_tags = torch.tensor([f.rel_tag for f in features], dtype=torch.long)
-    tensors = [input_ids, attention_mask, seq_tags, poten_relations, corres_tags, rel_tags]
+    tensors = [input_ids, attention_mask, seq_tags,
+               poten_relations, corres_tags, rel_tags]
     return tensors
 
 
@@ -254,11 +268,9 @@ def collate_fn_test(features):
         tensors (List[Tensors])
     """
     input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+    attention_mask = torch.tensor(
+        [f.attention_mask for f in features], dtype=torch.long)
     triples = [f.triples for f in features]
     input_tokens = [f.input_tokens for f in features]
     tensors = [input_ids, attention_mask, triples, input_tokens]
     return tensors
-    
- 
- 

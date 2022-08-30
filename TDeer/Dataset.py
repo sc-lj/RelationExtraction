@@ -20,7 +20,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 class TDEERDataset(Dataset):
-    def __init__(self, train_file, args, is_training=False):
+    def __init__(self, args, is_training=False):
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
@@ -34,7 +34,11 @@ class TDEERDataset(Dataset):
         self.relation_size = len(self.rel2id)
         self.max_sample_triples = args.max_sample_triples
         self.datas = []
-        with open(train_file, 'r') as f:
+        if is_training:
+            filenames = os.path.join(args.data_dir, "train_triples.json")
+        else:
+            filenames = os.path.join(args.data_dir, "dev_triples.json")
+        with open(filenames, 'r') as f:
             lines = json.load(f)
         if self.is_training:
             self.preprocess(lines)
@@ -60,11 +64,13 @@ class TDEERDataset(Dataset):
                 rel_idx = self.rel2id[rel]
                 subj_tokened = self.tokenizer.encode(subj)
                 obj_tokened = self.tokenizer.encode(obj)
-                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1],0)
+                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1], 0)
                 subj_tail_idx = subj_head_idx + len(subj_tokened[1:-1]) - 1
-                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],subj_tail_idx+1)
+                obj_head_idx = find_head_idx(
+                    input_ids, obj_tokened[1:-1], subj_tail_idx+1)
                 if obj_head_idx == -1:
-                    obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],0)
+                    obj_head_idx = find_head_idx(
+                        input_ids, obj_tokened[1:-1], 0)
                 obj_tail_idx = obj_head_idx + len(obj_tokened[1:-1]) - 1
                 if subj_head_idx == -1 or obj_head_idx == -1:
                     continue
@@ -118,11 +124,13 @@ class TDEERDataset(Dataset):
                 rel_idx = self.rel2id[rel]
                 subj_tokened = self.tokenizer.encode(subj)
                 obj_tokened = self.tokenizer.encode(obj)
-                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1],0)
+                subj_head_idx = find_head_idx(input_ids, subj_tokened[1:-1], 0)
                 subj_tail_idx = subj_head_idx + len(subj_tokened[1:-1]) - 1
-                obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],subj_tail_idx+1)
+                obj_head_idx = find_head_idx(
+                    input_ids, obj_tokened[1:-1], subj_tail_idx+1)
                 if obj_head_idx == -1:
-                    obj_head_idx = find_head_idx(input_ids, obj_tokened[1:-1],0)
+                    obj_head_idx = find_head_idx(
+                        input_ids, obj_tokened[1:-1], 0)
                 obj_tail_idx = obj_head_idx + len(obj_tokened[1:-1]) - 1
                 if subj_head_idx == -1 or obj_head_idx == -1:
                     continue
@@ -366,5 +374,3 @@ def collate_fn_val(batches):
         batch_triples_index_set.append(obj['triples_index_set'])
 
     return [batch_texts, batch_offsets, batch_tokens, batch_attention_masks, batch_segments, batch_triple_set, batch_triples_index_set, batch_text_masks]
-
-
