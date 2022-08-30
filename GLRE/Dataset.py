@@ -438,6 +438,7 @@ class GLREDataset(Dataset):
         nodes_mention = []
         for id_, (e, i) in enumerate(self.entities[pmid].items()):
             for sent_id, m1, m2 in zip(i['sentNo'], i['mstart'], i['mend']):
+                # id_,实体类型，实体start index，end index，句子id，节点类型id
                 ent += [[id_, self.type2index[i['type'][0]], int(m1), int(m2), int(sent_id), 1]]
                 # id_,实体类型，实体start index，end index，句子id，节点类型id
                 nodes_mention += [[id_, self.type2index[i['type'][0]], int(m1), int(m2), int(sent_id), 1]]
@@ -589,7 +590,7 @@ class GLREDataset(Dataset):
                 'bert_mask': bert_mask,  # attention_mask
                 'bert_starts': bert_starts, # 文本中每个words的start在input_ids中的位置
                 }
-                
+
         return data
 
 
