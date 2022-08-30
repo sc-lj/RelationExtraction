@@ -160,9 +160,9 @@ class Local_rep_layer(nn.Module):
 class GLREModule(nn.Module):
     def __init__(self,args,) -> None:
         super().__init__()
-        self.pretrain_lm = BertModel.from_pretrained(args.pretrain_path)
-        pretrain_hidden_size = self.pretrain_lm.hidden_size
-        self.pretrain_l_m_linear_re = nn.Linear(pretrain_hidden_size, args.lstm_dim)
+        self.bert = BertModel.from_pretrained(args.pretrain_path)
+        hidden_size = self.bert.config.hidden_size
+        self.pretrain_lm_linear_re = nn.Linear(hidden_size, args.lstm_dim)
         # 是否对实体类型进行embedding
         if args.types:
             self.type_embed = EmbedLayer(num_embeddings=3,
@@ -176,7 +176,7 @@ class GLREModule(nn.Module):
 
         self.rgcn_layer = RGCN_Layer(args, rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers, relation_cnt=5)
         self.rgcn_linear_re = nn.Linear(args.rgcn_hidden_dim*2, args.rgcn_hidden_dim)
-        self.encoder = EncoderLSTM(input_size=pretrain_hidden_size,
+        self.encoder = EncoderLSTM(input_size=hidden_size,
                                    num_units=args.lstm_dim,
                                    nlayers=args.bilstm_layers,
                                    bidir=True,
@@ -222,11 +222,8 @@ class GLREModule(nn.Module):
                                      out_size=args.rel_size,
                                      dropout=args.drop_o)
 
-        self.rel_size =args.rel_size
         self.finaldist = args.finaldist
         self.context_att = args.context_att
-        self.pretrain_l_m = args.pretrain_l_m
-        self.local_rep = args.local_rep
         self.query = args.query
         assert self.query == 'init' or self.query == 'global'
         self.global_rep = args.global_rep
@@ -274,21 +271,35 @@ class GLREModule(nn.Module):
         return nodes, nodes_info
 
     def node_layer(self, encoded_seq, info, word_sec):
-        # SENTENCE NODES
-        sentences = torch.mean(encoded_seq, dim=1)  # sentence nodes (avg of sentence words)
+        """获取各种节点表征
+        Args:
+            encoded_seq (_type_): _description_
+            info (_type_): _description_
+            word_sec (_type_): _description_
 
+        Returns:
+            _type_: _description_
+        """
+        # SENTENCE NODES，句子节点
+        sentences = torch.mean(encoded_seq, dim=1)  # sentence nodes (avg of sentence words)
         # MENTION & ENTITY NODES
         encoded_seq_token = rm_pad(encoded_seq, word_sec)
+        # mention节点
         mentions = self.merge_tokens(info, encoded_seq_token)
+        # 实体节点
         entities = self.merge_mentions(info, mentions)  # entity nodes
         return (entities, mentions, sentences)
 
     @staticmethod
     def merge_tokens(info, enc_seq, type="mean"):
-        """
-        Merge tokens into mentions;
-        Find which tokens belong to a mention (based on start-end ids) and average them
-        @:param enc_seq all_word_len * dim  4469*192
+        """基于start-end ids信息,合并token表征,进行平均,然后表示为mention节点表征
+        Args:
+            info (_type_): _description_
+            enc_seq (_type_): _description_
+            type (str, optional): _description_. Defaults to "mean".
+
+        Returns:
+            _type_: _description_
         """
         mentions = []
         for i in range(info.shape[0]):
@@ -367,30 +378,48 @@ class GLREModule(nn.Module):
             sel = torch.where(condition1, torch.ones_like(sel), sel)
         return sel.nonzero().unbind(dim=1), sel.nonzero()[:, 0]
 
-    def forward(self, bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
-        context_output = self.pretrain_lm(bert_token, attention_mask=bert_mask)[0]
+    def forward(self, input_ids,attention_mask,token_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
+        """_summary_
 
+        Args:
+            input_ids (_type_): 输入的input ids
+            attention_mask (_type_): 输入的attention mask
+            token_starts (_type_): 输入的每个token的起始位置在input ids中的位置,毕竟有些token会被分为两个input id
+            section (_type_): _description_
+            word_sec (_type_): 每个句子的word数量
+            entities (_type_): 所有mention信息
+            rgcn_adjacency (_type_): rgcn模型的邻接矩阵
+            distances_dir (_type_): _description_
+            multi_relations (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        # [batch_size,seq_len,hidden_size]
+        context_output = self.bert(input_ids, attention_mask=attention_mask)[0]
+        # 这是取每个word的start边界？为啥？
         context_output = [layer[starts.nonzero().squeeze(1)] for layer, starts in
-                            zip(context_output, bert_starts)]
+                            zip(context_output, token_starts)]
         context_output_pad = []
         for output, word_len in zip(context_output, section[:, 3]):
             if output.size(0) < word_len:
                 padding = Variable(output.data.new(1, 1).zero_())
                 output = torch.cat([output, padding.expand(word_len - output.size(0), output.size(1))], dim=0)
             context_output_pad.append(output)
-
+        # 所有word的start边界组合成的context
         context_output = torch.cat(context_output_pad, dim=0)
 
         if self.more_lstm:
+            # 使用lstm对模型文本进行二次编码
             context_output = self.encoding_layer(context_output, section[:, 3])
             context_output = rm_pad(context_output, section[:, 3])
-        encoded_seq = self.pretrain_l_m_linear_re(context_output)
+        encoded_seq = self.pretrain_lm_linear_re(context_output)
 
         encoded_seq = split_n_pad(encoded_seq, word_sec)
 
         # Graph
+        # Global Representation Layer
         nodes = self.node_layer(encoded_seq, entities, word_sec)
-
         init_nodes = nodes
         nodes, nodes_info = self.graph_layer(nodes, entities, section[:, 0:3])
         nodes, _ = self.rgcn_layer(nodes, rgcn_adjacency,section[:, 0:3])
@@ -401,14 +430,10 @@ class GLREModule(nn.Module):
         relation_rep_t = nodes[:, c_idx]
         # relation_rep = self.rgcn_linear_re(relation_rep)  # global node rep
 
-        if self.local_rep:
-            entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(entities, section, init_nodes, nodes)
-            if not self.global_rep:
-                relation_rep_h = entitys_pair_rep_h
-                relation_rep_t = entitys_pair_rep_t
-            else:
-                relation_rep_h = torch.cat((relation_rep_h, entitys_pair_rep_h), dim=-1)
-                relation_rep_t = torch.cat((relation_rep_t, entitys_pair_rep_t), dim=-1)
+        # Local Representation Layer
+        entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(entities, section, init_nodes, nodes)
+        relation_rep_h = torch.cat((relation_rep_h, entitys_pair_rep_h), dim=-1)
+        relation_rep_t = torch.cat((relation_rep_t, entitys_pair_rep_t), dim=-1)
 
         if self.finaldist:
             dis_h_2_t = distances_dir+ 10
@@ -439,7 +464,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
         super().__init__()
         self.model = GLREModule(args)
         self.rel_size = args.rel_size
-        self.ignore_label = ''
+        self.ignore_label = args.ignore_label
     
     def count_predictions(self, y, t):
         """
@@ -489,18 +514,20 @@ class GLREModuelPytochLighting(pl.LightningModule):
         bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
         section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
         rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        relations = batches['relations']
         graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
-                                                                                      batches['multi_relations'][select])
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
+        
         return loss
 
     def validation_step(self, batches,batch_idx):
         bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
         section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
         rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+        relations = batches['relations']
         graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, batches['relations'][select],
-                                                                                      batches['multi_relations'][select])
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
+
         pred_pairs = torch.sigmoid(pred_pairs)
         predictions = pred_pairs.data.argmax(dim=1)
         stats = self.count_predictions(predictions, truth)
@@ -533,7 +560,6 @@ class GLREModuelPytochLighting(pl.LightningModule):
                 test_result.append((int(multi_truth[r]) == 1, float(pred_pairs[pair_id][r]),
                                     test_infos[pair_id]['intrain'],test_infos[pair_id]['cross'], self.loader.index2rel[r], r,
                                     len(test_info) - 1, pair_id))
-
 
     def configure_optimizers(self):
         """[配置优化参数]

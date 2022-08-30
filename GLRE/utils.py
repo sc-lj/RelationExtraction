@@ -8,8 +8,6 @@ from torch.autograd import Variable
 def sparse_mxs_to_torch_sparse_tensor(sparse_mxs):
     """
     Convert a list of scipy sparse matrix to a torch sparse tensor.
-    :param sparse_mxs: [sparse_mx] adj
-    :return:
     """
     max_shape = 0
     for mx in sparse_mxs:
