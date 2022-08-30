@@ -10,7 +10,7 @@
 
 
 import torch
-import torch.nn as nn 
+import torch.nn as nn
 from Attention import *
 from GLRE.utils import *
 from GLRE.config import *
@@ -24,6 +24,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 class RGCN_Layer(nn.Module):
     """ A Relation GCN module operated on documents graphs. """
+
     def __init__(self, in_dim, mem_dim, num_layers, relation_cnt=5):
         """
         Args:
@@ -82,7 +83,7 @@ class RGCN_Layer(nn.Module):
             masks = sum(masks)
             maskss.append(masks)
             denomss.append(denoms)
-        denomss = torch.stack(denomss) # 40 * 61 * 1
+        denomss = torch.stack(denomss)  # 40 * 61 * 1
 
         # sparse rgcn layer
         for l in range(self.layers):
@@ -102,7 +103,8 @@ class RGCN_Layer(nn.Module):
             gAxWs = torch.stack(gAxWs, dim=1)
             # print("denomss", denomss.shape)
             # print((torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)).shape)
-            gAxWs = F.relu((torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  # self loop
+            gAxWs = F.relu(
+                (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  # self loop
             gcn_inputs = self.gcn_drop(gAxWs) if l < self.layers - 1 else gAxWs
 
         return gcn_inputs, maskss
@@ -115,10 +117,10 @@ class Local_rep_layer(nn.Module):
         input_dim = RGCN_HIDDEN_DIM
         self.device = torch.device("cuda")
 
-        self.multiheadattention = MultiHeadAttention(input_dim, num_heads=ATTN_HEAD_NUM, dropout=ATTN_DROP)
+        self.multiheadattention = MultiHeadAttention(
+            input_dim, num_heads=ATTN_HEAD_NUM, dropout=ATTN_DROP)
         self.multiheadattention1 = MultiHeadAttention(input_dim, num_heads=ATTN_HEAD_NUM,
-                                                     dropout=ATTN_DROP)
-
+                                                      dropout=ATTN_DROP)
 
     def forward(self, info, section, nodes, global_nodes):
         """
@@ -127,38 +129,46 @@ class Local_rep_layer(nn.Module):
             :param nodes <batch_size * node_size>
         """
         entities, mentions, sentences = nodes  # entity_size * dim
-        entities = split_n_pad(entities, section[:, 0])  # batch_size * entity_size * -1
+        # batch_size * entity_size * -1
+        entities = split_n_pad(entities, section[:, 0])
         if self.query == 'global':
             entities = global_nodes
 
         entity_size = section[:, 0].max()
         mentions = split_n_pad(mentions, section[:, 1])
 
-        mention_sen_rep = F.embedding(info[:, 4], sentences)  # mention_size * sen_dim
+        mention_sen_rep = F.embedding(
+            info[:, 4], sentences)  # mention_size * sen_dim
         mention_sen_rep = split_n_pad(mention_sen_rep, section[:, 1])
 
         eid_ranges = torch.arange(0, max(info[:, 0]) + 1).to(self.device)
-        eid_ranges = split_n_pad(eid_ranges, section[:, 0], pad=-2)  # batch_size * men_size
-
+        # batch_size * men_size
+        eid_ranges = split_n_pad(eid_ranges, section[:, 0], pad=-2)
 
         r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(self.device),
-                                          torch.arange(entity_size).to(self.device))
+                                      torch.arange(entity_size).to(self.device))
         query_1 = entities[:, r_idx]  # 2 * 30 * 30 * 128
         query_2 = entities[:, c_idx]
 
         info = split_n_pad(info, section[:, 1], pad=-1)
-        m_ids, e_ids = torch.broadcast_tensors(info[:, :, 0].unsqueeze(1), eid_ranges.unsqueeze(-1))
-        index_m = torch.ne(m_ids, e_ids).to(self.device)  # batch_size * entity_size * mention_size
-        index_m_h = index_m.unsqueeze(2).repeat(1, 1, entity_size, 1).reshape(index_m.shape[0], entity_size*entity_size, -1).to(self.device)
-        index_m_t = index_m.unsqueeze(1).repeat(1, entity_size, 1, 1).reshape(index_m.shape[0], entity_size*entity_size, -1).to(self.device)
+        m_ids, e_ids = torch.broadcast_tensors(
+            info[:, :, 0].unsqueeze(1), eid_ranges.unsqueeze(-1))
+        # batch_size * entity_size * mention_size
+        index_m = torch.ne(m_ids, e_ids).to(self.device)
+        index_m_h = index_m.unsqueeze(2).repeat(1, 1, entity_size, 1).reshape(
+            index_m.shape[0], entity_size*entity_size, -1).to(self.device)
+        index_m_t = index_m.unsqueeze(1).repeat(1, entity_size, 1, 1).reshape(
+            index_m.shape[0], entity_size*entity_size, -1).to(self.device)
 
-        entitys_pair_rep_h, h_score = self.multiheadattention(mention_sen_rep, mentions, query_2, index_m_h)
-        entitys_pair_rep_t, t_score = self.multiheadattention1(mention_sen_rep, mentions, query_1, index_m_t)
+        entitys_pair_rep_h, h_score = self.multiheadattention(
+            mention_sen_rep, mentions, query_2, index_m_h)
+        entitys_pair_rep_t, t_score = self.multiheadattention1(
+            mention_sen_rep, mentions, query_1, index_m_t)
         return entitys_pair_rep_h, entitys_pair_rep_t
 
 
 class GLREModule(nn.Module):
-    def __init__(self,args,) -> None:
+    def __init__(self, args,) -> None:
         super().__init__()
         self.bert = BertModel.from_pretrained(args.pretrain_path)
         hidden_size = self.bert.config.hidden_size
@@ -174,7 +184,8 @@ class GLREModule(nn.Module):
         if TYPES:
             rgcn_input_dim += TYPE_DIM
 
-        self.rgcn_layer = RGCN_Layer(rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
+        self.rgcn_layer = RGCN_Layer(
+            rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
         self.rgcn_linear_re = nn.Linear(RGCN_HIDDEN_DIM*2, RGCN_HIDDEN_DIM)
         self.encoder = EncoderLSTM(input_size=hidden_size,
                                    num_units=LSTM_DIM,
@@ -188,25 +199,24 @@ class GLREModule(nn.Module):
                                              freeze=False,
                                              pretrained=None,
                                              mapping=None)
-                                             
+
         if RGCN_NUM_LAYERS == 0:
             input_dim = rgcn_input_dim * 2
         else:
             input_dim = RGCN_HIDDEN_DIM * 2
 
         self.local_rep_layer = Local_rep_layer()
-        input_dim += LSTM_DIM* 2
+        input_dim += LSTM_DIM * 2
 
         if FINALDIST:
             input_dim += DIST_DIM * 2
-
 
         if CONTEXT_ATT:
             self.self_att = SelfAttention(input_dim, 1.0)
             input_dim = input_dim * 2
 
         self.mlp_layer = MLP_LAYERS
-        if self.mlp_layer>-1:
+        if self.mlp_layer > -1:
             hidden_dim = MLP_DIM
             layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
             for _ in range(MLP_LAYERS - 1):
@@ -232,7 +242,8 @@ class GLREModule(nn.Module):
         @:param word_sec [list]
         @:param seq_lens [list]
         """
-        ys, _ = self.encoder(torch.split(word_vec, seq_lens.tolist(), dim=0), seq_lens)  # 20, 460, 128
+        ys, _ = self.encoder(torch.split(
+            word_vec, seq_lens.tolist(), dim=0), seq_lens)  # 20, 460, 128
         return ys
 
     def graph_layer(self, nodes, info, section):
@@ -250,17 +261,19 @@ class GLREModule(nn.Module):
 
         # all nodes in order: entities - mentions - sentences
         nodes = torch.cat(nodes, dim=0)  # e + m + s (all)
-        nodes_info = self.node_info(section, info)                 # info/node: node type | semantic type | sentence ID
-
+        # info/node: node type | semantic type | sentence ID
+        nodes_info = self.node_info(section, info)
 
         nodes = torch.cat((nodes, self.type_embed(nodes_info[:, 0])), dim=1)
 
         # re-order nodes per document (batch)
         nodes = self.rearrange_nodes(nodes, section)
-        nodes = split_n_pad(nodes, section.sum(dim=1))  # torch.Size([4, 76, 210]) batch_size * node_size * node_emb
+        # torch.Size([4, 76, 210]) batch_size * node_size * node_emb
+        nodes = split_n_pad(nodes, section.sum(dim=1))
 
         nodes_info = self.rearrange_nodes(nodes_info, section)
-        nodes_info = split_n_pad(nodes_info, section.sum(dim=1), pad=-1)  # torch.Size([4, 76, 3]) batch_size * node_size * node_type_size
+        # torch.Size([4, 76, 3]) batch_size * node_size * node_type_size
+        nodes_info = split_n_pad(nodes_info, section.sum(dim=1), pad=-1)
 
         return nodes, nodes_info
 
@@ -275,7 +288,8 @@ class GLREModule(nn.Module):
             _type_: _description_
         """
         # SENTENCE NODES，句子节点
-        sentences = torch.mean(encoded_seq, dim=1)  # sentence nodes (avg of sentence words)
+        # sentence nodes (avg of sentence words)
+        sentences = torch.mean(encoded_seq, dim=1)
         # MENTION & ENTITY NODES
         encoded_seq_token = rm_pad(encoded_seq, word_sec)
         # mention节点
@@ -298,9 +312,11 @@ class GLREModule(nn.Module):
         mentions = []
         for i in range(info.shape[0]):
             if type == "max":
-                mention = torch.max(enc_seq[info[i, 2]: info[i, 3], :], dim=-2)[0]
+                mention = torch.max(
+                    enc_seq[info[i, 2]: info[i, 3], :], dim=-2)[0]
             else:  # mean
-                mention = torch.mean(enc_seq[info[i, 2]: info[i, 3], :], dim=-2)
+                mention = torch.mean(
+                    enc_seq[info[i, 2]: info[i, 3], :], dim=-2)
             mentions.append(mention)
         mentions = torch.stack(mentions)
         return mentions
@@ -321,20 +337,23 @@ class GLREModule(nn.Module):
         entities = torch.stack(entities)
         return entities
 
-
     def node_info(self, section, info):
         """
         info:        (Tensor, 5 columns) entity_id, entity_type, start_wid, end_wid, sentence_id
         Col 0: node type | Col 1: semantic type | Col 2: sentence id
         """
-        typ = torch.repeat_interleave(torch.arange(3).to(self.device), section.sum(dim=0))  # node types (0,1,2)
+        typ = torch.repeat_interleave(torch.arange(3).to(
+            self.device), section.sum(dim=0))  # node types (0,1,2)
         rows_ = torch.bincount(info[:, 0]).cumsum(dim=0)
-        rows_ = torch.cat([torch.tensor([0]).to(self.device), rows_[:-1]]).to(self.device)  #
+        rows_ = torch.cat([torch.tensor([0]).to(self.device),
+                          rows_[:-1]]).to(self.device)  #
 
-        stypes = torch.neg(torch.ones(section[:, 2].sum())).to(self.device).long()  # semantic type sentences = -1
+        stypes = torch.neg(torch.ones(section[:, 2].sum())).to(
+            self.device).long()  # semantic type sentences = -1
         all_types = torch.cat((info[:, 1][rows_], info[:, 1], stypes), dim=0)
         sents_ = torch.arange(section.sum(dim=0)[2]).to(self.device)
-        sent_id = torch.cat((info[:, 4][rows_], info[:, 4], sents_), dim=0)  # sent_id
+        sent_id = torch.cat(
+            (info[:, 4][rows_], info[:, 4], sents_), dim=0)  # sent_id
         return torch.cat((typ.unsqueeze(-1), all_types.unsqueeze(-1), sent_id.unsqueeze(-1)), dim=1)
 
     @staticmethod
@@ -345,8 +364,10 @@ class GLREModule(nn.Module):
         tmp1 = section.t().contiguous().view(-1).long().to(nodes.device)
         tmp3 = torch.arange(section.numel()).view(section.size(1),
                                                   section.size(0)).t().contiguous().view(-1).long().to(nodes.device)
-        tmp2 = torch.arange(section.sum()).to(nodes.device).split(tmp1.tolist())
-        tmp2 = pad_sequence(tmp2, batch_first=True, padding_value=-1)[tmp3].view(-1)
+        tmp2 = torch.arange(section.sum()).to(
+            nodes.device).split(tmp1.tolist())
+        tmp2 = pad_sequence(tmp2, batch_first=True,
+                            padding_value=-1)[tmp3].view(-1)
         tmp2 = tmp2[(tmp2 != -1).nonzero().squeeze()]  # remove -1 (padded)
 
         nodes = torch.index_select(nodes, 0, tmp2)
@@ -357,22 +378,27 @@ class GLREModule(nn.Module):
         """
         Select (entity node) pairs for classification based on input parameter restrictions (i.e. their entity type).
         """
-        sel = torch.zeros(nodes_info.size(0), nodes_info.size(1), nodes_info.size(1)).to(nodes_info.device)
+        sel = torch.zeros(nodes_info.size(0), nodes_info.size(
+            1), nodes_info.size(1)).to(nodes_info.device)
         a_ = nodes_info[..., 0][:, idx[0]]
         b_ = nodes_info[..., 0][:, idx[1]]
         # 针对不同数据
         if dataset == 'cdr':
             c_ = nodes_info[..., 1][:, idx[0]]
             d_ = nodes_info[..., 1][:, idx[1]]
-            condition1 = torch.eq(a_, 0) & torch.eq(b_, 0) & torch.ne(idx[0], idx[1])  # needs to be an entity node (id=0)
-            condition2 = torch.eq(c_, 1) & torch.eq(d_, 2)  # h=medicine, t=disease
-            sel = torch.where(condition1 & condition2, torch.ones_like(sel), sel)
+            condition1 = torch.eq(a_, 0) & torch.eq(b_, 0) & torch.ne(
+                idx[0], idx[1])  # needs to be an entity node (id=0)
+            condition2 = torch.eq(c_, 1) & torch.eq(
+                d_, 2)  # h=medicine, t=disease
+            sel = torch.where(condition1 & condition2,
+                              torch.ones_like(sel), sel)
         else:
-            condition1 = torch.eq(a_, 0) & torch.eq(b_, 0) & torch.ne(idx[0], idx[1])
+            condition1 = torch.eq(a_, 0) & torch.eq(
+                b_, 0) & torch.ne(idx[0], idx[1])
             sel = torch.where(condition1, torch.ones_like(sel), sel)
         return sel.nonzero().unbind(dim=1), sel.nonzero()[:, 0]
 
-    def forward(self, input_ids,attention_mask,token_starts,section,word_sec,entities,rgcn_adjacency,distances_dir,multi_relations):
+    def forward(self, input_ids, attention_mask, token_starts, section, word_sec, entities, rgcn_adjacency, distances_dir, multi_relations):
         """_summary_
 
         Args:
@@ -393,12 +419,13 @@ class GLREModule(nn.Module):
         context_output = self.bert(input_ids, attention_mask=attention_mask)[0]
         # 这是取每个word的start边界？为啥？
         context_output = [layer[starts.nonzero().squeeze(1)] for layer, starts in
-                            zip(context_output, token_starts)]
+                          zip(context_output, token_starts)]
         context_output_pad = []
         for output, word_len in zip(context_output, section[:, 3]):
             if output.size(0) < word_len:
                 padding = Variable(output.data.new(1, 1).zero_())
-                output = torch.cat([output, padding.expand(word_len - output.size(0), output.size(1))], dim=0)
+                output = torch.cat([output, padding.expand(
+                    word_len - output.size(0), output.size(1))], dim=0)
             context_output_pad.append(output)
         # 所有word的start边界组合成的context
         context_output = torch.cat(context_output_pad, dim=0)
@@ -416,7 +443,7 @@ class GLREModule(nn.Module):
         nodes = self.node_layer(encoded_seq, entities, word_sec)
         init_nodes = nodes
         nodes, nodes_info = self.graph_layer(nodes, entities, section[:, 0:3])
-        nodes, _ = self.rgcn_layer(nodes, rgcn_adjacency,section[:, 0:3])
+        nodes, _ = self.rgcn_layer(nodes, rgcn_adjacency, section[:, 0:3])
         entity_size = section[:, 0].max()
         r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(self.device),
                                       torch.arange(entity_size).to(self.device))
@@ -425,61 +452,76 @@ class GLREModule(nn.Module):
         # relation_rep = self.rgcn_linear_re(relation_rep)  # global node rep
 
         # Local Representation Layer
-        entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(entities, section, init_nodes, nodes)
-        relation_rep_h = torch.cat((relation_rep_h, entitys_pair_rep_h), dim=-1)
-        relation_rep_t = torch.cat((relation_rep_t, entitys_pair_rep_t), dim=-1)
+        entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(
+            entities, section, init_nodes, nodes)
+        relation_rep_h = torch.cat(
+            (relation_rep_h, entitys_pair_rep_h), dim=-1)
+        relation_rep_t = torch.cat(
+            (relation_rep_t, entitys_pair_rep_t), dim=-1)
 
         if self.finaldist:
-            dis_h_2_t = distances_dir+ 10
+            dis_h_2_t = distances_dir + 10
             dis_t_2_h = -distances_dir + 10
             dist_dir_h_t_vec = self.dist_embed_dir(dis_h_2_t)
             dist_dir_t_h_vec = self.dist_embed_dir(dis_t_2_h)
-            relation_rep_h = torch.cat((relation_rep_h, dist_dir_h_t_vec), dim=-1)
-            relation_rep_t = torch.cat((relation_rep_t, dist_dir_t_h_vec), dim=-1)
+            relation_rep_h = torch.cat(
+                (relation_rep_h, dist_dir_h_t_vec), dim=-1)
+            relation_rep_t = torch.cat(
+                (relation_rep_t, dist_dir_t_h_vec), dim=-1)
         graph_select = torch.cat((relation_rep_h, relation_rep_t), dim=-1)
 
         if self.context_att:
             relation_mask = torch.sum(torch.ne(multi_relations, 0), -1).gt(0)
-            graph_select = self.self_att(graph_select, graph_select, relation_mask)
+            graph_select = self.self_att(
+                graph_select, graph_select, relation_mask)
 
         # Classification
         r_idx, c_idx = torch.meshgrid(torch.arange(nodes_info.size(1)).to(self.device),
                                       torch.arange(nodes_info.size(1)).to(self.device))
         select, _ = self.select_pairs(nodes_info, (r_idx, c_idx), self.dataset)
         graph_select = graph_select[select]
-        if self.mlp_layer>-1:
+        if self.mlp_layer > -1:
             graph_select = self.out_mlp(graph_select)
         graph = self.classifier(graph_select)
 
-        return graph,select
+        return graph, select
+
 
 class GLREModuelPytochLighting(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
         self.model = GLREModule(args)
         self.rel_size = args.rel_size
-        self.ignore_label = args.ignore_label
-    
+        self.ignore_label = NA_id
+
     def count_predictions(self, y, t):
         """
         Count number of TP, FP, FN, TN for each relation class
         """
         label_num = torch.as_tensor([self.rel_size]).long().to(self.device)
-        ignore_label = torch.as_tensor([self.ignore_label]).long().to(self.device)
+        ignore_label = torch.as_tensor(
+            [self.ignore_label]).long().to(self.device)
 
-        mask_t = torch.eq(t, ignore_label).view(-1)          # where the ground truth needs to be ignored
-        mask_p = torch.eq(y, ignore_label).view(-1)          # where the predicted needs to be ignored
+        # where the ground truth needs to be ignored
+        mask_t = torch.eq(t, ignore_label).view(-1)
+        # where the predicted needs to be ignored
+        mask_p = torch.eq(y, ignore_label).view(-1)
 
-        true = torch.where(mask_t, label_num, t.view(-1).long().to(self.device))  # ground truth
-        pred = torch.where(mask_p, label_num, y.view(-1).long().to(self.device))  # output of NN
+        true = torch.where(mask_t, label_num,
+                           t.view(-1).long().to(self.device))  # ground truth
+        pred = torch.where(mask_p, label_num,
+                           y.view(-1).long().to(self.device))  # output of NN
 
         tp_mask = torch.where(torch.eq(pred, true), true, label_num)
         fp_mask = torch.where(torch.ne(pred, true), pred, label_num)
         fn_mask = torch.where(torch.ne(pred, true), true, label_num)
 
-        tp = torch.bincount(tp_mask, minlength=self.rel_size + 1)[:self.rel_size]
-        fp = torch.bincount(fp_mask, minlength=self.rel_size + 1)[:self.rel_size]
-        fn = torch.bincount(fn_mask, minlength=self.rel_size + 1)[:self.rel_size]
+        tp = torch.bincount(
+            tp_mask, minlength=self.rel_size + 1)[:self.rel_size]
+        fp = torch.bincount(
+            fp_mask, minlength=self.rel_size + 1)[:self.rel_size]
+        fn = torch.bincount(
+            fn_mask, minlength=self.rel_size + 1)[:self.rel_size]
         tn = torch.sum(mask_t & mask_p)
         return {'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn, 'ttotal': t.shape[0]}
 
@@ -500,33 +542,40 @@ class GLREModuelPytochLighting(pl.LightningModule):
         # label smoothing
         # multi_truth -= self.smoothing * ( multi_truth  - 1. / multi_truth.shape[-1])
         loss = torch.sum(self.loss(pred_pairs, multi_truth)) / (
-                torch.sum(multi_mask) * self.rel_size)
+            torch.sum(multi_mask) * self.rel_size)
 
         return loss, pred_pairs, multi_truth, multi_mask, truth
 
-    def training_step(self, batches,batch_idx):
-        bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
-        section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
-        rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+    def training_step(self, batches, batch_idx):
+        bert_token, bert_mask, bert_starts = batches['bert_token'], batches['bert_mask'], batches['bert_starts']
+        section, word_sec, entities = batches['section'], batches['word_sec'], batches['entities']
+        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches[
+            'distances_dir'], batches['multi_relations']
         relations = batches['relations']
-        graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
-        
+        graph, select = self.model(bert_token, bert_mask, bert_starts,
+                                   section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(
+            graph, relations[select], multi_rel[select])
+
         return loss
 
-    def validation_step(self, batches,batch_idx):
-        bert_token,bert_mask,bert_starts = batches['bert_token'],batches['bert_mask'],batches['bert_starts']
-        section,word_sec,entities = batches['section'],batches['word_sec'],batches['entities']
-        rgcn_adj,dist_dir,multi_rel = batches['rgcn_adjacency'],batches['distances_dir'],batches['multi_relations']
+    def validation_step(self, batches, batch_idx):
+        bert_token, bert_mask, bert_starts = batches['bert_token'], batches['bert_mask'], batches['bert_starts']
+        section, word_sec, entities = batches['section'], batches['word_sec'], batches['entities']
+        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches[
+            'distances_dir'], batches['multi_relations']
         relations = batches['relations']
-        graph ,select = self.model(bert_token,bert_mask,bert_starts,section,word_sec,entities,rgcn_adj,dist_dir,multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
+        graph, select = self.model(bert_token, bert_mask, bert_starts,
+                                   section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(
+            graph, relations[select], multi_rel[select])
 
         pred_pairs = torch.sigmoid(pred_pairs)
         predictions = pred_pairs.data.argmax(dim=1)
         stats = self.count_predictions(predictions, truth)
-        
-        output = {'tp': [], 'fp': [], 'fn': [], 'tn': [], 'loss': [], 'preds': [], 'true': 0}
+
+        output = {'tp': [], 'fp': [], 'fn': [],
+                  'tn': [], 'loss': [], 'preds': [], 'true': 0}
         test_info = []
         test_result = []
         output['loss'] += [loss.item()]
@@ -537,13 +586,14 @@ class GLREModuelPytochLighting(pl.LightningModule):
         output['preds'] += [predictions.to('cpu').data.numpy()]
 
         test_infos = batches['info'][select[0].to('cpu').data.numpy(),
-                                    select[1].to('cpu').data.numpy(),
-                                    select[2].to('cpu').data.numpy()][mask.to('cpu').data.numpy()]
+                                     select[1].to('cpu').data.numpy(),
+                                     select[2].to('cpu').data.numpy()][mask.to('cpu').data.numpy()]
         test_info += [test_infos]
 
         pred_pairs = pred_pairs.data.cpu().numpy()
         multi_truths = multi_truths.data.cpu().numpy()
-        output['true'] += multi_truths.sum() - multi_truths[:, self.loader.label2ignore].sum()
+        output['true'] += multi_truths.sum() - multi_truths[:,
+                                                            self.loader.label2ignore].sum()
 
         for pair_id in range(len(pred_pairs)):
             multi_truth = multi_truths[pair_id]
@@ -552,7 +602,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
                     continue
 
                 test_result.append((int(multi_truth[r]) == 1, float(pred_pairs[pair_id][r]),
-                                    test_infos[pair_id]['intrain'],test_infos[pair_id]['cross'], self.loader.index2rel[r], r,
+                                    test_infos[pair_id]['intrain'], test_infos[pair_id]['cross'], self.loader.index2rel[r], r,
                                     len(test_info) - 1, pair_id))
 
     def configure_optimizers(self):
@@ -561,12 +611,16 @@ class GLREModuelPytochLighting(pl.LightningModule):
         param_optimizer = list(self.named_parameters())
         no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8,'lr':2e-5},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0,'lr':2e-5},
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8,'lr':2e-4},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
-                ]
-    
+            {'params': [p for n, p in param_optimizer if not any(
+                nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8, 'lr':2e-5},
+            {'params': [p for n, p in param_optimizer if any(
+                nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0, 'lr':2e-5},
+            {'params': [p for n, p in param_optimizer if not any(
+                nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8, 'lr':2e-4},
+            {'params': [p for n, p in param_optimizer if any(
+                nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0, 'lr':2e-4}
+        ]
+
         # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
         optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
@@ -580,5 +634,3 @@ class GLREModuelPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
-
-

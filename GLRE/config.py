@@ -8,7 +8,7 @@
 @Desc    :   GLRE 模型的相关参数
 '''
 
-QUERY = 'global' # or 'init'
+QUERY = 'global'  # or 'init'
 MORE_LSTM = False
 
 # encoder
@@ -26,13 +26,13 @@ GCN_OUT_DROP = 0.2
 
 # network
 DROP_I = 0.5
-DROP_O = 0.3 # 0.3
+DROP_O = 0.3  # 0.3
 ATTN_HEAD_NUM = 2
 ATTN_DROP = 0.0
 UNK_W_PROB = 0.5
 MIN_W_FREQ = 1
-NA_NUM: 0.5  # 0.1==5:1
-
+NA_NUM = 0.5  # 0.1==5:1,
+NA_id = -1  # NA 标签的id
 MLP_LAYERS = 1
 MLP_DIM = 512
 

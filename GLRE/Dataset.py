@@ -16,6 +16,7 @@ import itertools
 import random
 from tqdm import tqdm
 import scipy.sparse as sp
+from GLRE.config import NA_NUM, NA_id
 from collections import OrderedDict
 from collections import namedtuple
 from torch.utils.data import Dataset
@@ -33,7 +34,7 @@ class GLREDataset(Dataset):
 
         self.is_training = is_training
         # 忽略相应关系的标签
-        self.label2ignore = -1
+        self.label2ignore = NA_id
         self.ign_label = "NA"
 
         # 实体id
@@ -671,12 +672,10 @@ class GLREDataset(Dataset):
         return data
 
 
-def collate_fn(batch, NA_NUM, NA_id, istrain=False):
+def collate_fn(batch, istrain=False):
     """_summary_
     Args:
         batch (_type_): _description_
-        NA_NUM (_type_): _description_
-        NA_id (_type_): NA 标签的id
         istrain (bool, optional): 是否是训练集. Defaults to False.
 
     Returns:
@@ -770,9 +769,6 @@ def concat_examples(batch, padding=-1):
         padding['dep_adj'] = 0
 
         for key in first_elem:
-            # flag = True
-            # if key == "ent_sen_mask":
-            #     flag = False
             result[key] = torch.as_tensor(_concat_arrays(
                 [example[key] for example in batch], padding[key]))
 
