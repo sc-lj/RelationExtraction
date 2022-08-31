@@ -180,7 +180,6 @@ class GLREModule(nn.Module):
 
         self.rgcn_layer = RGCN_Layer(
             rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
-        self.rgcn_linear_re = nn.Linear(RGCN_HIDDEN_DIM*2, RGCN_HIDDEN_DIM)
         self.encoder = EncoderLSTM(input_size=hidden_size,
                                    num_units=LSTM_DIM,
                                    nlayers=BILSTM_LAYERS,
@@ -481,7 +480,6 @@ class GLREModule(nn.Module):
                                       torch.arange(entity_size).to(device))
         relation_rep_h = nodes[:, r_idx]
         relation_rep_t = nodes[:, c_idx]
-        # relation_rep = self.rgcn_linear_re(relation_rep)  # global node rep
 
         # Local Representation Layer
         entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(
