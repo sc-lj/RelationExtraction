@@ -15,6 +15,7 @@ class Dot_Attention(nn.Module):
     Here the query is the target pair and the keys/values are the words of the sentence.
     The dimensionality of the queries and the values should be the same.
     """
+
     def __init__(self, input_size, device=-1, scale=False):
 
         super(Dot_Attention, self).__init__()
@@ -30,17 +31,20 @@ class Dot_Attention(nn.Module):
         mention_sents = torch.index_select(lengths, 0, idx_[:, 4])
 
         # mask padded words (longer that sentence length)
-        tempa = torch.arange(size_).unsqueeze(0).repeat(alpha.shape[0], 1).to(self.device)
+        tempa = torch.arange(size_).unsqueeze(
+            0).repeat(alpha.shape[0], 1).to(self.device)
         mask_a = torch.ge(tempa, mention_sents[:, None])
 
         # mask tokens that are used as queries
-        tempb = torch.arange(lengths.size(0)).unsqueeze(0).repeat(alpha.shape[0], 1).to(self.device)  # m x sents
+        tempb = torch.arange(lengths.size(0)).unsqueeze(0).repeat(
+            alpha.shape[0], 1).to(self.device)  # m x sents
         sents = torch.where(torch.lt(tempb, idx_[:, 4].unsqueeze(1)),
                             lengths.unsqueeze(0).repeat(alpha.shape[0], 1),
                             torch.zeros_like(lengths.unsqueeze(0).repeat(alpha.shape[0], 1)))
 
         total_l = torch.cumsum(sents, dim=1)[:, -1]
-        mask_b = torch.ge(tempa, (idx_[:, 2] - total_l)[:, None]) & torch.lt(tempa, (idx_[:, 3] - total_l)[:, None])
+        mask_b = torch.ge(tempa, (idx_[:, 2] - total_l)[:, None]
+                          ) & torch.lt(tempa, (idx_[:, 3] - total_l)[:, None])
 
         mask = ~(mask_a | mask_b)
         del tempa, tempb, total_l
@@ -55,7 +59,8 @@ class Dot_Attention(nn.Module):
         a = softmax( q * H^T )
         v = a * H
         """
-        alpha = torch.matmul(queries.unsqueeze(1), values.transpose(1, 2))  # men_size * 1 * sen_len
+        alpha = torch.matmul(queries.unsqueeze(
+            1), values.transpose(1, 2))  # men_size * 1 * sen_len
         if self.scale:
             alpha = alpha * self.sc
 
@@ -125,9 +130,12 @@ class MultiHeadAttention(nn.Module):
         query = self.linear_q(query)
 
         # split by heads
-        key = key.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
-        value = value.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
-        query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
+        key = key.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,
+                                                                             2).reshape(batch_size*num_heads, -1, dim_per_head)
+        value = value.reshape(batch_size, -1, num_heads, dim_per_head).transpose(
+            1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
+        query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(
+            1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
         if attn_mask is not None:
             attn_mask = attn_mask.repeat(num_heads, 1, 1)
             # scaled dot product attention
@@ -136,7 +144,8 @@ class MultiHeadAttention(nn.Module):
             query, key, value, scale, attn_mask)
 
         # concat heads
-        context = context.reshape(batch_size,num_heads, -1,  dim_per_head).transpose(1,2).reshape(batch_size, -1, num_heads*dim_per_head)
+        context = context.reshape(batch_size, num_heads, -1,  dim_per_head).transpose(
+            1, 2).reshape(batch_size, -1, num_heads*dim_per_head)
 
         # final linear projection
         output = self.linear_final(context)
@@ -145,10 +154,11 @@ class MultiHeadAttention(nn.Module):
         output = self.dropout(output)
 
         # add residual and norm layer
-        output = output.reshape(batch_size, entity_size, entity_size, -1 )
+        output = output.reshape(batch_size, entity_size, entity_size, -1)
         output = self.layer_norm(output)
 
         return output, attention
+
 
 class MultiHeadAttention2(nn.Module):
     def __init__(self, model_dim=512, num_heads=8, dropout=0.0):
@@ -178,9 +188,12 @@ class MultiHeadAttention2(nn.Module):
         query = self.linear_q(query)
 
         # split by heads
-        key = key.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
-        value = value.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
-        query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(1,2).reshape(batch_size*num_heads, -1, dim_per_head)
+        key = key.reshape(batch_size, -1, num_heads, dim_per_head).transpose(1,
+                                                                             2).reshape(batch_size*num_heads, -1, dim_per_head)
+        value = value.reshape(batch_size, -1, num_heads, dim_per_head).transpose(
+            1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
+        query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(
+            1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
         if attn_mask is not None:
             attn_mask = attn_mask.repeat(num_heads, 1, 1)
             # scaled dot product attention
@@ -189,7 +202,8 @@ class MultiHeadAttention2(nn.Module):
             query, key, value, scale, attn_mask)
 
         # concat heads
-        context = context.reshape(batch_size,num_heads, -1,  dim_per_head).transpose(1,2).reshape(batch_size, -1, num_heads*dim_per_head)
+        context = context.reshape(batch_size, num_heads, -1,  dim_per_head).transpose(
+            1, 2).reshape(batch_size, -1, num_heads*dim_per_head)
 
         # final linear projection
         output = self.linear_final(context)
@@ -198,7 +212,7 @@ class MultiHeadAttention2(nn.Module):
         output = self.dropout(output)
 
         # add residual and norm layer
-        output = output.reshape(batch_size, entity_size, entity_size, -1 )
+        output = output.reshape(batch_size, entity_size, entity_size, -1)
         output = self.layer_norm(output)
 
         return output, attention
@@ -209,7 +223,8 @@ class SelfAttention(nn.Module):
         super().__init__()
         # self.dropout = LockedDropout(dropout)
         self.input_linear = nn.Linear(input_size, 1, bias=False)
-        self.dot_scale = nn.Parameter(torch.Tensor(input_size).uniform_(1.0 / (input_size ** 0.5)), requires_grad=True)
+        self.dot_scale = nn.Parameter(torch.Tensor(input_size).uniform_(
+            1.0 / (input_size ** 0.5)), requires_grad=True)
 
     def forward(self, input, memory, mask):
         # input = self.dropout(input)
@@ -218,9 +233,10 @@ class SelfAttention(nn.Module):
         enttiy_size = input.shape[1]
         input = input.reshape(batch_size, enttiy_size*enttiy_size, -1)
         memory = memory.reshape(batch_size, enttiy_size*enttiy_size, -1)
-        mask = mask.reshape(batch_size,-1)
+        mask = mask.reshape(batch_size, -1)
         input_dot = self.input_linear(input)
-        cross_dot = torch.bmm(input * self.dot_scale, memory.permute(0, 2, 1).contiguous())
+        cross_dot = torch.bmm(input * self.dot_scale,
+                              memory.permute(0, 2, 1).contiguous())
         att = input_dot + cross_dot
         att = att - 1e30 * (~ mask[:, None])
 
@@ -234,10 +250,10 @@ def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
     d_k = query.size(-1)
     scores = torch.matmul(query, key.transpose(-2, -1)) \
-             / math.sqrt(d_k)
+        / math.sqrt(d_k)
     if mask is not None:
         scores = scores.masked_fill(mask == 0, -1e9)
-    p_attn = F.softmax(scores, dim = -1)
+    p_attn = F.softmax(scores, dim=-1)
     if dropout is not None:
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
@@ -284,6 +300,7 @@ class MultiHeadedAttention(nn.Module):
 
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
+
     def __init__(self, d_model, d_ff, dropout=0.1):
         super(PositionwiseFeedForward, self).__init__()
         self.w_1 = nn.Linear(d_model, d_ff)
@@ -296,6 +313,7 @@ class PositionwiseFeedForward(nn.Module):
 
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
+
     def __init__(self, d_model, dropout, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -318,6 +336,7 @@ class PositionalEncoding(nn.Module):
 
 class LayerNorm(nn.Module):
     "Construct a layernorm module (See citation for details)."
+
     def __init__(self, features, eps=1e-6):
         super(LayerNorm, self).__init__()
         self.a_2 = nn.Parameter(torch.ones(features))
@@ -335,6 +354,7 @@ class SublayerConnection(nn.Module):
     A residual connection followed by a layer norm.
     Note for code simplicity the norm is first as opposed to last.
     """
+
     def __init__(self, size, dropout):
         super(SublayerConnection, self).__init__()
         self.norm = LayerNorm(size)
@@ -347,6 +367,7 @@ class SublayerConnection(nn.Module):
 
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
+
     def __init__(self, size, self_attn, feed_forward, dropout):
         super(EncoderLayer, self).__init__()
         self.self_attn = self_attn
@@ -362,6 +383,7 @@ class EncoderLayer(nn.Module):
 
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
+
     def __init__(self, layer, N):
         super(Encoder, self).__init__()
         self.layers = clones(layer, N)
@@ -379,6 +401,7 @@ class SimpleEncoder(nn.Module):
     takes (batch_size, seq_len, embed_dim) as inputs
     calculate MASK, POSITION_ENCODING
     """
+
     def __init__(self, embed_dim, head=4, layer=1, dropout=0.1):
         super(SimpleEncoder, self).__init__()
         d_ff = 2 * embed_dim
@@ -386,11 +409,11 @@ class SimpleEncoder(nn.Module):
         self.position = PositionalEncoding(embed_dim, dropout)
         attn = MultiHeadedAttention(head, embed_dim)
         ff = PositionwiseFeedForward(embed_dim, d_ff)
-        self.encoder = Encoder(EncoderLayer(embed_dim, attn, ff, dropout), layer)
+        self.encoder = Encoder(EncoderLayer(
+            embed_dim, attn, ff, dropout), layer)
 
     def forward(self, x, mask):
         mask = mask.unsqueeze(-2)
         x = self.position(x)
         x = self.encoder(x, mask)
         return x
-
