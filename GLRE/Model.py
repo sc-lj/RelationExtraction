@@ -31,7 +31,7 @@ class RGCN_Layer(nn.Module):
             in_dim (_type_): GCN layer 输入的维度
             mem_dim (_type_): GCN layer 中间层以及输出的维度
             num_layers (_type_): GCN layer 的层数
-            relation_cnt (int, optional): _description_. Defaults to 5.
+            relation_cnt (int, optional): 边的关系数量. Defaults to 5.
         """
         super().__init__()
         self.layers = num_layers
@@ -46,10 +46,10 @@ class RGCN_Layer(nn.Module):
         # gcn layer
         self.W_0 = nn.ModuleList()
         self.W_r = nn.ModuleList()
-        # for i in range(self.relation_cnt):
+        # 为每个关系构建相应的多个权重矩阵
         for i in range(relation_cnt):
             self.W_r.append(nn.ModuleList())
-
+        # 每层的GCN矩阵
         for layer in range(self.layers):
             input_dim = self.in_dim if layer == 0 else self.mem_dim
             self.W_0.append(nn.Linear(input_dim, self.mem_dim).to(self.device))
@@ -59,54 +59,51 @@ class RGCN_Layer(nn.Module):
     def forward(self, nodes, adj, section):
         """
         Args:
-            nodes (_type_): batch_size * node_size * node_emb, 节点矩阵
-            adj (_type_):  batch_size * 5 * node_size * node_size, 邻接矩阵
+            nodes (_type_): [batch_size,node_size,node_emb] 节点表征矩阵
+            adj (_type_):  邻接矩阵rgcn模型的邻接矩阵,shape:[batch_size,5,node_size,node_size],5是5种边
             section (_type_): (Tensor <B, 3>) #entities/#mentions/#sentences per batch
         Returns:
             _type_: _description_
         """
         gcn_inputs = self.in_drop(nodes)
-
         maskss = []
         denomss = []
         for batch in range(adj.shape[0]):
             masks = []
-            denoms = []
+            denoms = [] #所有关系的度矩阵
             for i in range(self.relation_cnt):
+                # 求某个关系的度矩阵
                 denom = torch.sparse.sum(adj[batch, i], dim=1).to_dense()
-                t_g = denom + torch.sparse.sum(adj[batch, i], dim=0).to_dense()
-                mask = t_g.eq(0)
+                t_g = denom + torch.sparse.sum(adj[batch, i], dim=0).to_dense() # 防止点与点之间是单向连接
+                mask = t_g.eq(0) # 度矩阵的mask矩阵
                 denoms.append(denom.unsqueeze(1))
                 masks.append(mask)
-            denoms = torch.sum(torch.stack(denoms), 0)
-            denoms = denoms + 1
-            masks = sum(masks)
+            denoms = torch.sum(torch.stack(denoms), 0) # 聚合所有关系的度矩阵
+            denoms = denoms + 1 # +1 表示边的自连接 [node_size,1]
+            masks = sum(masks) # [node_size]
             maskss.append(masks)
             denomss.append(denoms)
-        denomss = torch.stack(denomss)  # 40 * 61 * 1
+        denomss = torch.stack(denomss)  # [batch_size,node_size,1]
 
         # sparse rgcn layer
         for l in range(self.layers):
             gAxWs = []
             for j in range(self.relation_cnt):
                 gAxW = []
-
                 bxW = self.W_r[j][l](gcn_inputs)
                 for batch in range(adj.shape[0]):
-
+                    # 每个文档
                     xW = bxW[batch]  # 255 * 25
                     AxW = torch.sparse.mm(adj[batch][j], xW)  # 255, 25
                     # AxW = AxW/ denomss[batch][j]  # 255, 25
                     gAxW.append(AxW)
-                gAxW = torch.stack(gAxW)
+                gAxW = torch.stack(gAxW) # [batch_size,node_size,node_emb]
                 gAxWs.append(gAxW)
+            # # [batch_size,5,node_size,node_emb]
             gAxWs = torch.stack(gAxWs, dim=1)
-            # print("denomss", denomss.shape)
-            # print((torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)).shape)
             gAxWs = F.relu(
                 (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  # self loop
             gcn_inputs = self.gcn_drop(gAxWs) if l < self.layers - 1 else gAxWs
-
         return gcn_inputs, maskss
 
 
@@ -172,17 +169,14 @@ class GLREModule(nn.Module):
         super().__init__()
         self.bert = BertModel.from_pretrained(args.pretrain_path)
         hidden_size = self.bert.config.hidden_size
-        self.pretrain_lm_linear_re = nn.Linear(hidden_size, LSTM_DIM)
-        # 是否对实体类型进行embedding
-        if TYPES:
-            self.type_embed = EmbedLayer(num_embeddings=3,
-                                         embedding_dim=TYPE_DIM,
-                                         dropout=0.0)
+        
+        # 对节点类型进行embedding
+        self.type_embed = EmbedLayer(num_embeddings=3,
+                                    embedding_dim=TYPE_DIM,
+                                    dropout=0.0)
 
         # global node rep
-        rgcn_input_dim = LSTM_DIM
-        if TYPES:
-            rgcn_input_dim += TYPE_DIM
+        rgcn_input_dim = LSTM_DIM + TYPE_DIM
 
         self.rgcn_layer = RGCN_Layer(
             rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
@@ -192,6 +186,13 @@ class GLREModule(nn.Module):
                                    nlayers=BILSTM_LAYERS,
                                    bidir=True,
                                    dropout=DROP_I)
+        self.more_lstm = MORE_LSTM
+        if self.more_lstm:
+            pretrain_hidden_size = LSTM_DIM*2
+        else:
+            pretrain_hidden_size = hidden_size
+
+        self.pretrain_lm_linear_re = nn.Linear(pretrain_hidden_size, LSTM_DIM)
         if FINALDIST:
             self.dist_embed_dir = EmbedLayer(num_embeddings=20, embedding_dim=DIST_DIM,
                                              dropout=0.0,
@@ -232,7 +233,7 @@ class GLREModule(nn.Module):
         self.context_att = CONTEXT_ATT
         self.query = QUERY
         assert self.query == 'init' or self.query == 'global'
-        self.more_lstm = MORE_LSTM
+        
 
         self.dataset = DATASET
 
@@ -251,28 +252,29 @@ class GLREModule(nn.Module):
         Graph Layer -> Construct a document-level graph
         The graph edges hold representations for the connections between the nodes.
         Args:
-            nodes:
-            info:        (Tensor, 5 columns) entity_id, entity_type, start_wid, end_wid, sentence_id
-            section:     (Tensor <B, 3>) #entities/#mentions/#sentences per batch
-            positions:   distances between nodes (only M-M and S-S)
-
-        Returns: (Tensor) graph, (Tensor) tensor_mapping, (Tensors) indices, (Tensor) node information
+            nodes ([type]): node_type_num 个 各个节点表征信息
+            info ([type]): 所有mention信息, shape:[mention_num,7]
+            section ([type]): 每个batch的各个节点数量信息([batch_size,3]) #entities/#mentions/#sentences per batch
+        Returns:
+            (Tensor) graph, (Tensor) tensor_mapping, (Tensors) indices, (Tensor) node information
         """
-
-        # all nodes in order: entities - mentions - sentences
+        # all nodes in order: entities - mentions - sentences，将所有节点信息表征拼接起来
         nodes = torch.cat(nodes, dim=0)  # e + m + s (all)
         # info/node: node type | semantic type | sentence ID
+        # 获取了节点类型，节点实体类型，句子id
         nodes_info = self.node_info(section, info)
-
+        # 将节点的表征和节点类型的embedding进行拼接,shape: [all_node_num,hidden_size+rel_embedding_size],all_node_num=section.sum()
+        # 类似将每个节点类型表征加到节点表征上去
         nodes = torch.cat((nodes, self.type_embed(nodes_info[:, 0])), dim=1)
-
         # re-order nodes per document (batch)
         nodes = self.rearrange_nodes(nodes, section)
         # torch.Size([4, 76, 210]) batch_size * node_size * node_emb
+        # 按照batch切分后，进行padding，[batch_size,max_node_number,hidden_size+rel_embedding_size]
         nodes = split_n_pad(nodes, section.sum(dim=1))
-
+        # re-order nodes per document (batch)
         nodes_info = self.rearrange_nodes(nodes_info, section)
-        # torch.Size([4, 76, 3]) batch_size * node_size * node_type_size
+
+        # [batch_size,max_node_number,node_type_size]
         nodes_info = split_n_pad(nodes_info, section.sum(dim=1), pad=-1)
 
         return nodes, nodes_info
@@ -280,30 +282,30 @@ class GLREModule(nn.Module):
     def node_layer(self, encoded_seq, info, word_sec):
         """获取各种节点表征
         Args:
-            encoded_seq (_type_): _description_
-            info (_type_): _description_
-            word_sec (_type_): _description_
+            encoded_seq (_type_): 一个batch中所有句子的表征,shape:[sent_num,max_word_num,hidden_size]
+            info (_type_): 所有mention信息, shape:[mention_num,7]
+            word_sec (_type_): 每个句子的word数量, shape:[batch_size*sent_num]
 
         Returns:
             _type_: _description_
         """
-        # SENTENCE NODES，句子节点
+        # SENTENCE NODES，句子节点的表征
         # sentence nodes (avg of sentence words)
         sentences = torch.mean(encoded_seq, dim=1)
-        # MENTION & ENTITY NODES
+        # MENTION & ENTITY NODES,删除了句子中word的padding表征
         encoded_seq_token = rm_pad(encoded_seq, word_sec)
-        # mention节点
+        # mention节点表征,[mention_num,hidden_size]
         mentions = self.merge_tokens(info, encoded_seq_token)
-        # 实体节点
+        # 实体节点表征
         entities = self.merge_mentions(info, mentions)  # entity nodes
         return (entities, mentions, sentences)
 
     @staticmethod
     def merge_tokens(info, enc_seq, type="mean"):
-        """基于start-end ids信息,合并token表征,进行平均,然后表示为mention节点表征
+        """基于mention的start-end ids信息,合并token表征,进行平均,然后表示为mention节点表征
         Args:
-            info (_type_): _description_
-            enc_seq (_type_): _description_
+            info (_type_): [mention_num,7]
+            enc_seq (_type_): [sent_num*word_num,hidden_size],sent_num 为一个batch中的句子数量,word_num为句子中word数量
             type (str, optional): _description_. Defaults to "mean".
 
         Returns:
@@ -323,53 +325,78 @@ class GLREModule(nn.Module):
 
     @staticmethod
     def merge_mentions(info, mentions, type="mean"):
-        """
+        """合并含义相同的mention,最终表示为entity 表征
         Merge mentions into entities;
         Find which rows (mentions) have the same entity id and average them
+        Args:
+            info ([type]): 所有mention信息, shape:[mention_num,7]
+            mentions ([type]): [description],shape:[mention_num,hidden_size]
+            type (str, optional): [description]. Defaults to "mean".
+        Returns:
+            [type]: [description]
         """
+        # torch.broadcast_tensors 将x按照y的方向进行扩充，y按照x的方向进行扩充
+        # [mention_unique_num,mention_num],mention_unique_num是mention去重后数量
         m_ids, e_ids = torch.broadcast_tensors(info[:, 0].unsqueeze(0),
                                                torch.arange(0, max(info[:, 0]) + 1).unsqueeze(-1).to(info.device))
+        # 具有相同的id的index为False，即在相同位置，不同的mention id设置为True，相同的设置为False，为后续对相同的mention id进行聚合
         index_f = torch.ne(m_ids, e_ids).bool().to(info.device)
         entities = []
+        # 遍历所有实体
         for i in range(index_f.shape[0]):
+            # 对相同的实体的mention进行聚合操作，[hidden_size]
             entity = pool(mentions, index_f[i, :].unsqueeze(-1), type=type)
             entities.append(entity)
         entities = torch.stack(entities)
         return entities
 
     def node_info(self, section, info):
+        """AI is creating summary for node_info
+        Args:
+            section ([type]): 每个batch的各个节点数量信息([batch_size,3]) #entities/#mentions/#sentences per batch
+            info ([type]): 所有mention信息, shape:[mention_num,7]
         """
-        info:        (Tensor, 5 columns) entity_id, entity_type, start_wid, end_wid, sentence_id
-        Col 0: node type | Col 1: semantic type | Col 2: sentence id
-        """
-        typ = torch.repeat_interleave(torch.arange(3).to(
-            self.device), section.sum(dim=0))  # node types (0,1,2)
+        device = section.device
+        # 节点类型
+        # 重复张量的元素,对torch.arange(3)中每个元素按照section.sum(dim=0)中值大小重复相应的次数,shape*[section.sum()]
+        typ = torch.repeat_interleave(torch.arange(3).to(device), section.sum(dim=0))  # node types (0,1,2)
+        # 计算非负数组中每个值的频率。然后进行累加,即只取相同mention的第一个mention；[unique_mention_num]
         rows_ = torch.bincount(info[:, 0]).cumsum(dim=0)
-        rows_ = torch.cat([torch.tensor([0]).to(self.device),
-                          rows_[:-1]]).to(self.device)  #
-
-        stypes = torch.neg(torch.ones(section[:, 2].sum())).to(
-            self.device).long()  # semantic type sentences = -1
+        rows_ = torch.cat([torch.tensor([0]).to(device),
+                          rows_[:-1]]).to(device)  #
+        #batch中 句子的类型为-1
+        stypes = torch.neg(torch.ones(section[:, 2].sum())).to(device).long()  # semantic type sentences = -1
+        # info[:, 1] 为实体的类型
         all_types = torch.cat((info[:, 1][rows_], info[:, 1], stypes), dim=0)
-        sents_ = torch.arange(section.sum(dim=0)[2]).to(self.device)
+        # section.sum(dim=0)[2]一个batch内总的句子数量
+        sents_ = torch.arange(section.sum(dim=0)[2]).to(device)
+        # info[:, 4] 每个mention的在该batch中展开后的句子id
         sent_id = torch.cat(
             (info[:, 4][rows_], info[:, 4], sents_), dim=0)  # sent_id
+        # 拼接节点类型，实体类型，句子id
         return torch.cat((typ.unsqueeze(-1), all_types.unsqueeze(-1), sent_id.unsqueeze(-1)), dim=1)
 
     @staticmethod
     def rearrange_nodes(nodes, section):
-        """
+        """将全局的entity-mention-senttence的排序，重新在每个文档内部按照entity-mention-senttence顺序进行排序，不断按照文档进行叠加。
         Re-arrange nodes so that they are in 'Entity - Mention - Sentence' order for each document (batch)
+        Args:
+            nodes ([type]): [description]
+            section ([type]): 每个batch的各个节点数量信息([batch_size,3]) #entities/#mentions/#sentences per batch
+        Returns:
+            [type]: [description]
         """
-        tmp1 = section.t().contiguous().view(-1).long().to(nodes.device)
+        device = nodes.device
+        tmp1 = section.t().contiguous().view(-1).long().to(device)
+        # section.numel() = batch_size*3，用于temp2中的索引
         tmp3 = torch.arange(section.numel()).view(section.size(1),
-                                                  section.size(0)).t().contiguous().view(-1).long().to(nodes.device)
-        tmp2 = torch.arange(section.sum()).to(
-            nodes.device).split(tmp1.tolist())
-        tmp2 = pad_sequence(tmp2, batch_first=True,
-                            padding_value=-1)[tmp3].view(-1)
+                                                  section.size(0)).t().contiguous().view(-1).long().to(device)
+        # section.sum() 所有节点数量总和，然后按照tmp1不等量切分，主要分为三部分，前面1/3,中间1/3,后面1/3分别是不同节点
+        tmp2 = torch.arange(section.sum()).to(device).split(tmp1.tolist())
+        # padding 后，按照tmp3的索引进行重排
+        tmp2 = pad_sequence(tmp2, batch_first=True,padding_value=-1)[tmp3].view(-1) # 进行padding
+        # 移除-1
         tmp2 = tmp2[(tmp2 != -1).nonzero().squeeze()]  # remove -1 (padded)
-
         nodes = torch.index_select(nodes, 0, tmp2)
         return nodes
 
@@ -402,15 +429,15 @@ class GLREModule(nn.Module):
         """_summary_
 
         Args:
-            input_ids (_type_): 输入的input ids
-            attention_mask (_type_): 输入的attention mask
-            token_starts (_type_): 输入的每个token的起始位置在input ids中的位置,毕竟有些token会被分为两个input id
-            section (_type_): _description_
-            word_sec (_type_): 每个句子的word数量
-            entities (_type_): 所有mention信息
-            rgcn_adjacency (_type_): rgcn模型的邻接矩阵
-            distances_dir (_type_): _description_
-            multi_relations (_type_): _description_
+            input_ids (_type_): 输入的input ids, shape:[batch_size,seq_len]
+            attention_mask (_type_): 输入的attention mask, shape:[batch_size,seq_len]
+            token_starts (_type_): 输入的每个token的起始位置在input ids中的位置,毕竟有些token会被分为两个input id, shape:[batch_size,seq_len]
+            section (_type_): 保存每个文档中的实体数量,mention数量,句子数量,words数量, shape:[batch_size,4]
+            word_sec (_type_): 每个句子的word数量, shape:[batch_size*sent_num],sent_num为每个文本的句子数量
+            entities (_type_): 所有mention信息, shape:[mention_num,7],一个batch中mention_num为mention的数量
+            rgcn_adjacency (_type_): rgcn模型的邻接矩阵,shape:[batch_size,5,node_number,node_number],5是5种边
+            distances_dir (_type_): _description_ ,shape:[batch_size,entity_size,entity_size]
+            multi_relations (_type_): _description_ ,shape:[batch_size,entity_size,entity_size,rel_size]
 
         Returns:
             _type_: _description_
@@ -427,7 +454,7 @@ class GLREModule(nn.Module):
                 output = torch.cat([output, padding.expand(
                     word_len - output.size(0), output.size(1))], dim=0)
             context_output_pad.append(output)
-        # 所有word的start边界组合成的context
+        # 所有word的start边界组合成的context,[batch_size*word_len,hidden_size]
         context_output = torch.cat(context_output_pad, dim=0)
 
         if self.more_lstm:
@@ -435,18 +462,23 @@ class GLREModule(nn.Module):
             context_output = self.encoding_layer(context_output, section[:, 3])
             context_output = rm_pad(context_output, section[:, 3])
         encoded_seq = self.pretrain_lm_linear_re(context_output)
-
+        # [sent_num,max_word_num,hidden_size]
         encoded_seq = split_n_pad(encoded_seq, word_sec)
 
         # Graph
         # Global Representation Layer
         nodes = self.node_layer(encoded_seq, entities, word_sec)
         init_nodes = nodes
+        # 构建graph的node信息
         nodes, nodes_info = self.graph_layer(nodes, entities, section[:, 0:3])
+        # RGCN 模型模块
         nodes, _ = self.rgcn_layer(nodes, rgcn_adjacency, section[:, 0:3])
         entity_size = section[:, 0].max()
-        r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(self.device),
-                                      torch.arange(entity_size).to(self.device))
+        device = entity_size.device
+        # np.meshgrid(a,b)是按a作为x轴信息，b为y轴信息
+        # torch.meshgrid(x,y)是按输入x作为y轴信息，输入y作为x轴信息.
+        r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(device),
+                                      torch.arange(entity_size).to(device))
         relation_rep_h = nodes[:, r_idx]
         relation_rep_t = nodes[:, c_idx]
         # relation_rep = self.rgcn_linear_re(relation_rep)  # global node rep
@@ -476,8 +508,8 @@ class GLREModule(nn.Module):
                 graph_select, graph_select, relation_mask)
 
         # Classification
-        r_idx, c_idx = torch.meshgrid(torch.arange(nodes_info.size(1)).to(self.device),
-                                      torch.arange(nodes_info.size(1)).to(self.device))
+        r_idx, c_idx = torch.meshgrid(torch.arange(nodes_info.size(1)).to(device),
+                                      torch.arange(nodes_info.size(1)).to(device))
         select, _ = self.select_pairs(nodes_info, (r_idx, c_idx), self.dataset)
         graph_select = graph_select[select]
         if self.mlp_layer > -1:

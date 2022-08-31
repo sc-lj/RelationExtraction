@@ -9,7 +9,7 @@
 '''
 
 QUERY = 'global'  # or 'init'
-MORE_LSTM = False
+MORE_LSTM = True
 
 # encoder
 LSTM_DIM = 256
@@ -17,7 +17,6 @@ OUT_DIM = 256
 TYPE_DIM = 20
 DIST_DIM = 20
 FINALDIST = True
-TYPES = True
 BILSTM_LAYERS = 1
 RGCN_HIDDEN_DIM = 256
 RGCN_NUM_LAYERS = 2

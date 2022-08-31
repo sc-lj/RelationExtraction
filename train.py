@@ -1,5 +1,4 @@
 import argparse
-import imp
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
@@ -14,8 +13,8 @@ from utils.utils import statistics_text_length
 
 def parser_args():
     parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--model_type', default="one4rel",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel"])
+    parser.add_argument('--model_type', default="glre",
+                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--data_dir', type=str,
@@ -217,7 +216,7 @@ def main():
     elif args.model_type == "glre":
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
         train_dataset = GLREDataset(args, is_training=True)
-        relation_number = train_dataset.relation_size
+        relation_number = train_dataset.n_rel
 
         def train_collate_fn(x): return collate_fn(x, istrain=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,

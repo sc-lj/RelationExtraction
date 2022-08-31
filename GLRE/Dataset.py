@@ -50,7 +50,7 @@ class GLREDataset(Dataset):
         self.n_rel, self.rel2count = len(self.rel2index.keys()), {}
 
         self.word2index = json.load(
-            open(os.path.join(self.data_dir, "word2id.json")))
+            open(os.path.join(args.data_dir, "word2id.json")))
         self.index2word = {v: k for k, v in self.word2index.items()}
         self.n_words, self.word2count = len(
             self.word2index.keys()), {'<UNK>': 1}
@@ -63,6 +63,8 @@ class GLREDataset(Dataset):
         self.entities = OrderedDict()
         # 每篇文档中关系pair对信息 {doc_id:{(head_id,tail_id):[{rel:rel_value,dir:dir_value,dis:dis_value}]}}
         self.pairs = OrderedDict()
+
+        self.max_distance = -9999999999
 
         # 将距离分为9组
         self.dis2idx_dir = np.zeros((800), dtype='int64')  # distance feature
@@ -102,7 +104,6 @@ class GLREDataset(Dataset):
         self.entities_cor_id = {}
         for line in tqdm(lines):
             text_meta = {}
-            line = json.loads(line)
             doc_id += 1
             towrite_meta = str(doc_id) + "\t"  # pmid 0
             text_meta['pmid'] = doc_id
@@ -230,14 +231,11 @@ class GLREDataset(Dataset):
                     str(g['sent_id']) for g in head]  # 出现在不同句子中的id
 
                 for x in head_ent_info["mstart"]:
-                    assert int(x) <= word_len - \
-                        1, print(label_metas, '\t', word_len)
+                    assert int(x) <= word_len - 1, print(label_metas, '\t', word_len)
                 for x in head_ent_info["mend"]:
-                    assert int(x) <= word_len - \
-                        1, print(label_metas, '\t', word_len)
+                    assert int(x) <= word_len, print(label_metas, '\t', word_len)
                 for x in head_ent_info["sentNo"]:
-                    assert int(x) <= sen_len - \
-                        1, print(label_metas, '\t', word_len)
+                    assert int(x) <= sen_len -  1, print(label_metas, '\t', word_len)
 
                 head_ent_info["mstart"] = [
                     str(min(int(x), word_len - 1)) for x in head_ent_info["mstart"]]
@@ -268,14 +266,11 @@ class GLREDataset(Dataset):
                     str(g['sent_id']) for g in tail]  # 出现在不同句子中的id
 
                 for x in tail_ent_info["mstart"]:
-                    assert int(x) <= word_len, print(
-                        label_metas, '\t', word_len)
+                    assert int(x) <= word_len-1, print(label_metas, '\t', word_len)
                 for x in tail_ent_info["mend"]:
-                    assert int(x) <= word_len, print(
-                        label_metas, '\t', word_len)
+                    assert int(x) <= word_len, print(label_metas, '\t', word_len)
                 for x in tail_ent_info["sentNo"]:
-                    assert int(x) <= sen_len - \
-                        1, print(label_metas, '\t', word_len)
+                    assert int(x) <= sen_len - 1, print(label_metas, '\t', word_len)
 
                 tail_ent_info["mstart"] = [
                     str(min(int(x), word_len - 1)) for x in tail_ent_info["mstart"]]
@@ -323,11 +318,6 @@ class GLREDataset(Dataset):
             text_meta['label'] = label_metas
             document_meta.append(text_meta)
 
-        for did, p in self.pairs.items():
-            for k, vs in p.items():
-                for v in vs:
-                    self.add_relation(v.type)
-
         self.find_max_length(lengths)
         # map types and positions and relation types
         for d in self.documents:
@@ -342,8 +332,7 @@ class GLREDataset(Dataset):
             self.add_word(word)
 
     def add_word(self, word):
-        if self.lowercase:
-            word = word.lower()
+        word = word.lower()
         if word not in self.word2index:
             self.word2index[word] = self.n_words
             self.word2count[word] = 1
@@ -452,6 +441,7 @@ class GLREDataset(Dataset):
         subwords, bert_starts = self.subword_tokenize(words)
         # 子词 ids
         bert_token = self.tokenizer.convert_tokens_to_ids(subwords)
+        bert_token = np.array(bert_token)
         bert_mask = np.ones(len(bert_token))  # 子词的mask
 
         # NER
@@ -689,34 +679,47 @@ def collate_fn(batch, istrain=False):
     for i, b in enumerate(batch):
         current_text = list(itertools.chain.from_iterable(b['text']))
         full_text += current_text
-        new_batch['bert_token'] += [b['bert_token']]
-        new_batch['bert_mask'] += [b['bert_mask']]
-        new_batch['bert_starts'] += [b['bert_starts']]
 
         temp = []
         for e in b['ents']:
+            # id(在该batch中id),type,start(在该batch下mention的start所对应的word start),end(与前者同理),
+            # e[4]+ent_count：(在该batch组合下对应的sent_id),e[4]:原始的sent_id,实体节点类型
             temp += [[e[0] + ent_count, e[1], e[2] + word_count, e[3] + word_count,
-                      e[4] + sent_count, e[4], e[5]]]  # id  type start end sent_id
+                      e[4] + sent_count, e[4], e[5]]]  
         new_batch['entities'] += [np.array(temp)]
+        # 记录当前batch下前面所有batch已经有的word 数量
         word_count += sum([len(s) for s in b['text']])
+        # 记录当前batch下前面所有batch已经有的实体数量
         ent_count = max([t[0] for t in temp]) + 1
+        # 记录当前batch下前面所有batch已经有的句子数量
         sent_count += len(b['text'])
 
     new_batch['entities'] = np.concatenate(
         new_batch['entities'], axis=0)  # 56, 6
     new_batch['entities'] = torch.as_tensor(new_batch['entities']).long()
-    new_batch['bert_token'] = torch.as_tensor(
-        np.concatenate(new_batch['bert_token'])).long()
-    new_batch['bert_mask'] = torch.as_tensor(
-        np.concatenate(new_batch['bert_mask'])).long()
-    new_batch['bert_starts'] = torch.as_tensor(
-        np.concatenate(new_batch['bert_starts'])).long()
+    # new_batch['bert_token'] = torch.as_tensor(
+    #     np.concatenate(new_batch['bert_token'])).long()
+    # new_batch['bert_mask'] = torch.as_tensor(
+    #     np.concatenate(new_batch['bert_mask'])).long()
+    # new_batch['bert_starts'] = torch.as_tensor(
+    #     np.concatenate(new_batch['bert_starts'])).long()
 
     batch_ = [{k: v for k, v in b.items() if (
         k != 'info' and k != 'text' and k != 'rgcn_adjacency')} for b in batch]
     converted_batch = concat_examples(batch_, padding=-1)
     converted_batch['adjacency'][converted_batch['adjacency'] == -1] = 0
     converted_batch['dist_dir'][converted_batch['dist_dir'] == -1] = 0
+    
+    bert_token = converted_batch['bert_token']
+    bert_token[bert_token==-1]= 0
+    bert_mask = converted_batch['bert_mask']
+    bert_mask[bert_mask==-1]= 0
+    bert_starts = converted_batch['bert_starts']
+    bert_starts[bert_starts==-1]= 0
+
+    new_batch['bert_token'] = bert_token.long()
+    new_batch['bert_mask'] = bert_mask.long()
+    new_batch['bert_starts'] = bert_starts.long()
 
     new_batch['adjacency'] = converted_batch['adjacency'].float()  # 2,71,71
     new_batch['distances_dir'] = converted_batch['dist_dir'].long()  # 2,71,71

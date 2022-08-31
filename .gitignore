@@ -2,7 +2,7 @@
 test*
 __pycache__
 /data/data
-lightning_logs
+lightning_logs*
 event_extract*
 bertbaseuncased
 GLREDATA.zip

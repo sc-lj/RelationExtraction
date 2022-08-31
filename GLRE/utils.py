@@ -60,15 +60,19 @@ def find_cross(head, tail):
 
 
 def split_n_pad(nodes, section, pad=0, return_mask=False):
-    """
-    split tensor and pad
-    :param nodes:
-    :param section:
-    :param pad:
-    :return:
+    """split tensor and pad
+    Args:
+        nodes ([type]): [description]
+        section ([type]): [description]
+        pad (int, optional): [description]. Defaults to 0.
+        return_mask (bool, optional): [description]. Defaults to False.
+    Returns:
+        [type]: [description]
     """
     assert nodes.shape[0] == sum(section.tolist()), print(nodes.shape[0], sum(section.tolist()))
+    # 单独切分每个句子的word的表征，sent_num(句子数量)个[word_num(每个句子word数量),hidden_size]
     nodes = torch.split(nodes, section.tolist())
+    # [sent_num,max_word_num,hidden_size]
     nodes = pad_sequence(nodes, batch_first=True, padding_value=pad)
     if not return_mask:
         return nodes
@@ -76,7 +80,6 @@ def split_n_pad(nodes, section, pad=0, return_mask=False):
         max_v = max(section.tolist())
         temp_ = torch.arange(max_v).unsqueeze(0).repeat(nodes.size(0), 1).to(nodes)
         mask = (temp_ < section.unsqueeze(1))
-
         # mask = torch.zeros(nodes.size(0), max_v).to(nodes)
         # for index, sec in enumerate(section.tolist()):
         #    mask[index, :sec] = 1
@@ -86,12 +89,13 @@ def split_n_pad(nodes, section, pad=0, return_mask=False):
 
 def rm_pad(input, lens, max_v=None):
     """
-    :param input: batch_size * len * dim
-    :param lens: batch_size
+    :param input: [sent_num,max_word_num,hidden_size]
+    :param lens: sent_num
     :return:
     """
     if max_v is None:
         max_v = lens.max()
+    # [sent_num,max_word_num]
     temp_ = torch.arange(max_v).unsqueeze(0).repeat(lens.size(0), 1).to(input.device)
     remove_pad = (temp_ < lens.unsqueeze(1))
     return input[remove_pad]
@@ -109,15 +113,19 @@ def rm_pad_between(input, s_lens, e_lens, max_v):
 
 
 def pool(h, mask, type='max'):
-    """
+    """AI is creating summary for pool
 
-    :param h:  batch_size * max_len * gcn_hidden_size
-    :param mask:
-    :param type:
-    :return:
+    Args:
+        h ([type]): [description] shape:[mention_num,hidden_size]
+        mask ([type]): shape:[mention_num,1]
+        type (str, optional): [description]. Defaults to 'max'.
+
+    Returns:
+        [type]: [description]
     """
     if type == 'max':
         h = h.masked_fill(mask, -1e12)
+        # [hidden_size]
         return torch.max(h, -2)[0]
     elif type == 'avg' or type == "mean":
         h = h.masked_fill(mask, 0)
