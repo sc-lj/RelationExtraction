@@ -119,6 +119,15 @@ class MultiHeadAttention(nn.Module):
         self.layer_norm = nn.LayerNorm(model_dim)
 
     def forward(self, key, value, query, attn_mask=None):
+        """
+        Args:
+            key ([type]): [图卷积之前的初始句子节点表征],shape:[batch_size,max_mention_num,hidden_size]
+            value ([type]): [初始mention节点表征],shape:[batch_size,mention_size,hidden_size]
+            query ([type]): [实体全局表征有关] shape:[batch_size,entity_size,entity_size,hidden_size]
+            attn_mask ([type], optional): [description]. shape:[batch_size,entity_size*entity_size,mention_size].
+        Returns:
+            [type]: [description]
+        """
         residual = query
         dim_per_head = self.dim_per_head
         num_heads = self.num_heads
@@ -137,7 +146,7 @@ class MultiHeadAttention(nn.Module):
         query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(
             1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
         if attn_mask is not None:
-            attn_mask = attn_mask.repeat(num_heads, 1, 1)
+            attn_mask = attn_mask.repeat(num_heads, 1, 1) # 
             # scaled dot product attention
         scale = (key.size(-1)) ** -0.5
         context, attention = self.dot_product_attention(

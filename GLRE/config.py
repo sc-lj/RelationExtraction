@@ -31,10 +31,9 @@ ATTN_DROP = 0.0
 UNK_W_PROB = 0.5
 MIN_W_FREQ = 1
 NA_NUM = 0.5  # 0.1==5:1,
-NA_id = -1  # NA 标签的id
 MLP_LAYERS = 1
 MLP_DIM = 512
-
-CONTEXT_ATT = True
+# 将标签信息融入到训练中的attention中了？
+CONTEXT_ATT = False
 
 DATASET = 'docred'   # or cdr

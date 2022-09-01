@@ -16,7 +16,7 @@ import itertools
 import random
 from tqdm import tqdm
 import scipy.sparse as sp
-from GLRE.config import NA_NUM, NA_id,UNK_W_PROB
+from GLRE.config import NA_NUM,UNK_W_PROB
 from collections import OrderedDict
 from collections import namedtuple
 from torch.utils.data import Dataset
@@ -34,7 +34,7 @@ class GLREDataset(Dataset):
 
         self.is_training = is_training
         # 忽略相应关系的标签
-        self.label2ignore = NA_id
+        self.label2ignore = -1
         self.ign_label = "NA"
 
         # 实体id
@@ -49,6 +49,11 @@ class GLREDataset(Dataset):
         self.index2rel = {v: k for k, v in self.rel2index.items()}
         self.n_rel, self.rel2count = len(self.rel2index.keys()), {}
 
+        for key, val in self.index2rel.items():
+            if val == self.ign_label:
+                self.label2ignore = key
+        assert self.label2ignore != -1
+        
         self.word2index = json.load(
             open(os.path.join(args.data_dir, "word2id.json")))
         self.index2word = {v: k for k, v in self.word2index.items()}
@@ -197,7 +202,7 @@ class GLREDataset(Dataset):
             entities_dist = []
             for label in labels:
                 l_meta = {}
-                rel = label['r']  # 'type'
+                rel = label['r']  # 'type' 关系
                 dir = "L2R"  # no use 'dir'
                 # 有关系的实体对保存在vertexSet中的实际信息
                 head = vertexSet[label['h']]
@@ -657,7 +662,7 @@ class GLREDataset(Dataset):
         return data
 
 
-def collate_fn(batch, istrain=False):
+def collate_fn(batch, NA_id, istrain=False):
     """_summary_
     Args:
         batch (_type_): _description_

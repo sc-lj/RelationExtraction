@@ -217,17 +217,19 @@ def main():
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
         train_dataset = GLREDataset(args, is_training=True)
         relation_number = train_dataset.n_rel
+        label2ignore = train_dataset.label2ignore
 
-        def train_collate_fn(x): return collate_fn(x, istrain=True)
+        def train_collate_fn(x): return collate_fn(x, label2ignore, istrain=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
                                       batch_size=args.batch_size, shuffle=True)
 
         val_dataset = GLREDataset(args, is_training=False)
 
-        def val_collate_fn(x): return collate_fn(x, istrain=False)
+        def val_collate_fn(x): return collate_fn(x, label2ignore, istrain=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
-
+        
+        args.label2ignore = label2ignore
         args.rel_size = relation_number
         args.steps = len(train_dataset)
         args.index2rel = train_dataset.index2rel
