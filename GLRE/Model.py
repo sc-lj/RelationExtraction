@@ -90,19 +90,22 @@ class RGCN_Layer(nn.Module):
             gAxWs = []
             for j in range(self.relation_cnt):
                 gAxW = []
+                # 邻接矩阵和权重的相乘
                 bxW = self.W_r[j][l](gcn_inputs)
                 for batch in range(adj.shape[0]):
                     # 每个文档
-                    xW = bxW[batch]  # 255 * 25
+                    xW = bxW[batch]
                     AxW = torch.sparse.mm(adj[batch][j], xW)  # 255, 25
+                    # 除以相应关系的度
                     # AxW = AxW/ denomss[batch][j]  # 255, 25
                     gAxW.append(AxW)
                 gAxW = torch.stack(gAxW) # [batch_size,node_size,node_emb]
                 gAxWs.append(gAxW)
             # # [batch_size,5,node_size,node_emb]
             gAxWs = torch.stack(gAxWs, dim=1)
+            # self loop
             gAxWs = F.relu(
-                (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  # self loop
+                (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  
             gcn_inputs = self.gcn_drop(gAxWs) if l < self.layers - 1 else gAxWs
         return gcn_inputs, maskss
 
@@ -520,9 +523,12 @@ class GLREModule(nn.Module):
 class GLREModuelPytochLighting(pl.LightningModule):
     def __init__(self, args):
         super().__init__()
+        self.save_hyperparameters(args)
         self.model = GLREModule(args)
         self.rel_size = args.rel_size
         self.ignore_label = NA_id
+        self.index2rel = args.index2rel
+        self.loss = nn.BCEWithLogitsLoss(reduction='none')
 
     def count_predictions(self, y, t):
         """
@@ -556,16 +562,17 @@ class GLREModuelPytochLighting(pl.LightningModule):
         return {'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn, 'ttotal': t.shape[0]}
 
     def estimate_loss(self, pred_pairs, truth, multi_truth):
-        """
-        Softmax cross entropy loss.
+        """Softmax cross entropy loss.
         Args:
-            pred_pairs (Tensor): Un-normalized pairs (# pairs, classes)
-            multi_truth (Tensor) : (#pairs, rel_size)
-
-        Returns: (Tensor) loss, (Tensors) TP/FP/FN
+            pred_pairs ([type]): (pair_numbers, rel_size)
+            truth ([type]): [description]
+            multi_truth ([type]): (pair_numbers, rel_size)
+        Returns:
+            [type]: (Tensor) loss, (Tensors) TP/FP/FN
         """
+        # [pair_numbers]
         multi_mask = torch.sum(torch.ne(multi_truth, 0), -1).gt(0)
-        # assert (multi_mask == 1).all()
+
         pred_pairs = pred_pairs[multi_mask]
         multi_truth = multi_truth[multi_mask]
         truth = truth[multi_mask]
@@ -597,7 +604,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
         relations = batches['relations']
         graph, select = self.model(bert_token, bert_mask, bert_starts,
                                    section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(
+        loss, pred_pairs, multi_truths, mask, truth = self.estimate_loss(
             graph, relations[select], multi_rel[select])
 
         pred_pairs = torch.sigmoid(pred_pairs)
@@ -623,17 +630,20 @@ class GLREModuelPytochLighting(pl.LightningModule):
         pred_pairs = pred_pairs.data.cpu().numpy()
         multi_truths = multi_truths.data.cpu().numpy()
         output['true'] += multi_truths.sum() - multi_truths[:,
-                                                            self.loader.label2ignore].sum()
+                                                            self.ignore_label].sum()
 
         for pair_id in range(len(pred_pairs)):
             multi_truth = multi_truths[pair_id]
             for r in range(0, self.rel_size):
-                if r == self.loader.label2ignore:
+                if r == self.ignore_label:
                     continue
 
                 test_result.append((int(multi_truth[r]) == 1, float(pred_pairs[pair_id][r]),
-                                    test_infos[pair_id]['intrain'], test_infos[pair_id]['cross'], self.loader.index2rel[r], r,
+                                    test_infos[pair_id]['cross'], self.index2rel[r], r,
                                     len(test_info) - 1, pair_id))
+
+    def validation_epoch_end(self, outputs) -> None:
+        pass
 
     def configure_optimizers(self):
         """[配置优化参数]

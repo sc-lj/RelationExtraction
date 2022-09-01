@@ -16,7 +16,7 @@ import itertools
 import random
 from tqdm import tqdm
 import scipy.sparse as sp
-from GLRE.config import NA_NUM, NA_id
+from GLRE.config import NA_NUM, NA_id,UNK_W_PROB
 from collections import OrderedDict
 from collections import namedtuple
 from torch.utils.data import Dataset
@@ -421,7 +421,7 @@ class GLREDataset(Dataset):
                     if word not in self.word2index:
                         # UNK words = singletons for train
                         sent += [self.word2index['UNK']]
-                    elif (word in self.singletons) and (random.uniform(0, 1) < float(self.unk_w_prob)):
+                    elif (word in self.singletons) and (random.uniform(0, 1) < float(UNK_W_PROB)):
                         sent += [self.word2index['UNK']]
                     else:
                         sent += [self.word2index[word]]
@@ -519,20 +519,15 @@ class GLREDataset(Dataset):
 
             rel_info[ents_keys.index(r[0]), ents_keys.index(r[1])] = OrderedDict(
                 [('pmid', pmid),  # 文档id
-                 ('sentA', self.entities[pmid][r[0]]
-                  ['sentNo']),  # 实体head所处的句子id
-                 ('sentB', self.entities[pmid][r[1]]
-                  ['sentNo']),  # 实体tail所处的句子id
+                 ('sentA', self.entities[pmid][r[0]]['sentNo']),  # 实体head所处的句子id
+                 ('sentB', self.entities[pmid][r[1]]['sentNo']),  # 实体tail所处的句子id
                  ('doc', self.documents[pmid]),  # 文档文本
                  ('entA', self.entities[pmid][r[0]]),  # 实体head的信息
                  # 实体tail的心
-                 ('entB',
-                  self.entities[pmid][r[1]]),
+                 ('entB',self.entities[pmid][r[1]]),
                  # 两个实体存在的关系集
-                 ('rel',
-                  relation_set),
-                 ('dir',
-                  ii[rt].direction),
+                 ('rel',relation_set),
+                 ('dir',ii[rt].direction),
                  ('cross', ii[rt].cross)])
 
             assert nodes[ents_keys.index(r[0])][2] == min(
@@ -650,7 +645,7 @@ class GLREDataset(Dataset):
                 'text': doc,  # 文档的token信息
                 'info': rel_info,  # 文档的关系信息
                 'adjacency': adjacency,  # 文档的邻接矩阵信息
-                'rgcn_adjacency': rgcn_adjacency,  # 文档的rgcn邻接矩阵信息
+                'rgcn_adjacency': rgcn_adjacency,  # 文档的rgcn邻接矩阵信息，并没有做拉普拉斯变换
                 # 实体数量，mention数量，句子数量，words数量
                 'section': np.array([len(self.entities[pmid].items()), ent.shape[0], len(doc), sum([len(s) for s in doc])]),
                 'word_sec': np.array([len(s) for s in doc]),  # 每个句子的word数量
@@ -697,12 +692,6 @@ def collate_fn(batch, istrain=False):
     new_batch['entities'] = np.concatenate(
         new_batch['entities'], axis=0)  # 56, 6
     new_batch['entities'] = torch.as_tensor(new_batch['entities']).long()
-    # new_batch['bert_token'] = torch.as_tensor(
-    #     np.concatenate(new_batch['bert_token'])).long()
-    # new_batch['bert_mask'] = torch.as_tensor(
-    #     np.concatenate(new_batch['bert_mask'])).long()
-    # new_batch['bert_starts'] = torch.as_tensor(
-    #     np.concatenate(new_batch['bert_starts'])).long()
 
     batch_ = [{k: v for k, v in b.items() if (
         k != 'info' and k != 'text' and k != 'rgcn_adjacency')} for b in batch]
@@ -741,7 +730,13 @@ def collate_fn(batch, istrain=False):
                                                         != -1].long()  # 21
     new_batch['rgcn_adjacency'] = convert_3dsparse_to_4dsparse(
         [b['rgcn_adjacency'] for b in batch])
-
+    new_batch['info'] = np.stack([np.array(np.pad(b['info'],
+                                                    ((0, new_batch['section'][:, 0].max(dim=0)[0].item() -
+                                                    b['info'].shape[0]),
+                                                    (0, new_batch['section'][:, 0].max(dim=0)[0].item() -
+                                                    b['info'].shape[0])),
+                                                    'constant',
+                                                    constant_values=(-1, -1))) for b in batch], axis=0)
     return new_batch
 
 

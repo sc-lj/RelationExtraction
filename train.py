@@ -220,7 +220,7 @@ def main():
 
         def train_collate_fn(x): return collate_fn(x, istrain=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8)
+                                      batch_size=args.batch_size, shuffle=True)
 
         val_dataset = GLREDataset(args, is_training=False)
 
@@ -230,6 +230,7 @@ def main():
 
         args.rel_size = relation_number
         args.steps = len(train_dataset)
+        args.index2rel = train_dataset.index2rel
         model = GLREModuelPytochLighting(args)
 
     else:
