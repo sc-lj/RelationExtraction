@@ -1,14 +1,15 @@
-import argparse
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
-from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
-from pytorch_lightning.plugins import DDPPlugin
-from utils.Callback import EMACallBack
-import pytorch_lightning as pl
-from torch.utils.data import DataLoader
 import json
 import os
-from utils.utils import statistics_text_length
+import yaml
+import argparse
+import pytorch_lightning as pl
+from pytorch_lightning import Trainer
+from utils.Callback import EMACallBack
+from torch.utils.data import DataLoader
+from pytorch_lightning.plugins import DDPPlugin
+from utils.utils import statistics_text_length,update_arguments
+from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
+from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 def parser_args():
@@ -27,6 +28,8 @@ def parser_args():
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
+    parser.add_argument('--config_dir', default="GLRE",
+                        type=str, help='每个模型的超参数配置,就在每个模型文件夹下')
     parser.add_argument('--dropout_prob', default=0.1, type=float,
                         help='dropout rate')
     parser.add_argument('--entity_pair_dropout', default=0.1, type=float,
@@ -104,7 +107,7 @@ def parser_args():
     parser.add_argument('--n_best_size', type=int, default=5,
                         help="解码时,选择前多少个triple作为最终的triple")
 
-    args = parser.parse_args()
+    args = parser.parse_args(args=[])
     return args
 
 
@@ -215,17 +218,21 @@ def main():
 
     elif args.model_type == "glre":
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
+        config_file = os.path.join(args.config_dir,"config.yaml")
+        with open(config_file,'r') as f:
+            config = yaml.load(f,Loader=yaml.Loader)
+        args = update_arguments(args,config)
         train_dataset = GLREDataset(args, is_training=True)
         relation_number = train_dataset.n_rel
         label2ignore = train_dataset.label2ignore
 
-        def train_collate_fn(x): return collate_fn(x, label2ignore, istrain=True)
+        def train_collate_fn(x): return collate_fn(x, label2ignore,args.NA_NUM, istrain=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
                                       batch_size=args.batch_size, shuffle=True)
 
         val_dataset = GLREDataset(args, is_training=False)
 
-        def val_collate_fn(x): return collate_fn(x, label2ignore, istrain=False)
+        def val_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM,istrain=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
         

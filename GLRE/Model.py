@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 from Attention import *
 from GLRE.utils import *
-from GLRE.config import *
+# from GLRE.config import *
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -25,7 +25,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 class RGCN_Layer(nn.Module):
     """ A Relation GCN module operated on documents graphs. """
 
-    def __init__(self, in_dim, mem_dim, num_layers, relation_cnt=5):
+    def __init__(self, in_dim, mem_dim, num_layers,gcn_in_drop,gcn_out_drop, relation_cnt=5):
         """
         Args:
             in_dim (_type_): GCN layer 输入的维度
@@ -40,8 +40,8 @@ class RGCN_Layer(nn.Module):
         self.relation_cnt = relation_cnt
         self.in_dim = in_dim
 
-        self.in_drop = nn.Dropout(GCN_IN_DROP)
-        self.gcn_drop = nn.Dropout(GCN_OUT_DROP)
+        self.in_drop = nn.Dropout(gcn_in_drop)
+        self.gcn_drop = nn.Dropout(gcn_out_drop)
 
         # gcn layer
         self.W_0 = nn.ModuleList()
@@ -112,17 +112,17 @@ class RGCN_Layer(nn.Module):
 
 
 class Local_rep_layer(nn.Module):
-    def __init__(self):
+    def __init__(self,query,rgcn_hidden_dim,attn_head_num,attn_drop):
         super(Local_rep_layer, self).__init__()
-        self.query = QUERY
-        input_dim = RGCN_HIDDEN_DIM
+        self.query = query
+        input_dim = rgcn_hidden_dim
         self.device = torch.device("cuda")
 
         # 分别对
         self.multiheadattention = MultiHeadAttention(
-            input_dim, num_heads=ATTN_HEAD_NUM, dropout=ATTN_DROP)
-        self.multiheadattention1 = MultiHeadAttention(input_dim, num_heads=ATTN_HEAD_NUM,
-                                                      dropout=ATTN_DROP)
+            input_dim, num_heads=attn_head_num, dropout=attn_drop)
+        self.multiheadattention1 = MultiHeadAttention(input_dim, num_heads=attn_head_num,
+                                                      dropout=attn_drop)
 
     def forward(self, info, section, nodes, global_nodes):
         """
@@ -209,67 +209,68 @@ class GLREModule(nn.Module):
 
         # 对节点类型进行embedding
         self.type_embed = EmbedLayer(num_embeddings=3,
-                                     embedding_dim=TYPE_DIM,
+                                     embedding_dim=args.type_dim,
                                      dropout=0.0)
 
         # global node rep
-        rgcn_input_dim = LSTM_DIM + TYPE_DIM
+        rgcn_input_dim = args.lstm_dim + args.type_dim
 
         self.rgcn_layer = RGCN_Layer(
-            rgcn_input_dim, RGCN_HIDDEN_DIM, RGCN_NUM_LAYERS, relation_cnt=5)
+            rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers,args.gcn_in_drop,args.gcn_out_drop, relation_cnt=5)
         self.encoder = EncoderLSTM(input_size=hidden_size,
-                                   num_units=LSTM_DIM,
-                                   nlayers=BILSTM_LAYERS,
+                                   num_units=args.lstm_dim,
+                                   nlayers=args.bilstm_layers,
                                    bidir=True,
-                                   dropout=DROP_I)
-        self.more_lstm = MORE_LSTM
+                                   dropout=args.drop_i)
+        self.more_lstm = args.more_lstm
         if self.more_lstm:
-            pretrain_hidden_size = LSTM_DIM*2
+            pretrain_hidden_size = args.lstm_dim*2
         else:
             pretrain_hidden_size = hidden_size
 
-        self.pretrain_lm_linear_re = nn.Linear(pretrain_hidden_size, LSTM_DIM)
-        if FINALDIST:
-            self.dist_embed_dir = EmbedLayer(num_embeddings=20, embedding_dim=DIST_DIM,
+        self.pretrain_lm_linear_re = nn.Linear(pretrain_hidden_size, args.lstm_dim)
+        self.finaldist = args.finaldist
+
+        if self.finaldist:
+            self.dist_embed_dir = EmbedLayer(num_embeddings=20, embedding_dim=args.dist_dim,
                                              dropout=0.0,
                                              ignore=10,
                                              freeze=False,
                                              pretrained=None,
                                              mapping=None)
 
-        if RGCN_NUM_LAYERS == 0:
+        if args.rgcn_num_layers == 0:
             input_dim = rgcn_input_dim * 2
         else:
-            input_dim = RGCN_HIDDEN_DIM * 2
+            input_dim = args.rgcn_hidden_dim * 2
 
-        self.local_rep_layer = Local_rep_layer()
-        input_dim += LSTM_DIM * 2
+        self.local_rep_layer = Local_rep_layer(args.query,args.rgcn_hidden_dim,args.att_head_num,args.att_drop)
+        input_dim += args.lstm_dim * 2
 
-        if FINALDIST:
-            input_dim += DIST_DIM * 2
-        self.context_att = CONTEXT_ATT
+        if self.finaldist:
+            input_dim += args.dist_dim * 2
+        self.context_att = args.context_att
         # if self.context_att:
         #     self.self_att = SelfAttention(input_dim, 1.0)
         #     input_dim = input_dim * 2
 
-        self.mlp_layer = MLP_LAYERS
+        self.mlp_layer = args.mlp_layers
         if self.mlp_layer > -1:
-            hidden_dim = MLP_DIM
+            hidden_dim = args.mlp_dim
             layers = [nn.Linear(input_dim, hidden_dim), nn.ReLU()]
-            for _ in range(MLP_LAYERS - 1):
+            for _ in range(self.mlp_layer - 1):
                 layers += [nn.Linear(hidden_dim, hidden_dim), nn.ReLU()]
             self.out_mlp = nn.Sequential(*layers)
             input_dim = hidden_dim
 
         self.classifier = Classifier(in_size=input_dim,
                                      out_size=args.rel_size,
-                                     dropout=DROP_O)
+                                     dropout=args.drop_o)
 
-        self.finaldist = FINALDIST
-        self.query = QUERY
+        self.query = args.query
         assert self.query == 'init' or self.query == 'global'
 
-        self.dataset = DATASET
+        self.dataset = args.dataset
 
     def encoding_layer(self, word_vec, seq_lens):
         """

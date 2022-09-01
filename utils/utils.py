@@ -29,3 +29,12 @@ def find_head_idx(source, target,sub_index):
             return i
     return -1
 
+def update_arguments(args,config):
+    """将config中的参数更新到args中
+    Args:
+        args ([type]): [description]
+        config ([type]): [description]
+    """
+    for key,value in config.items():
+        args.__setattr__(key,value)
+    return args

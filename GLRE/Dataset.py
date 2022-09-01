@@ -16,7 +16,6 @@ import itertools
 import random
 from tqdm import tqdm
 import scipy.sparse as sp
-from GLRE.config import NA_NUM,UNK_W_PROB
 from collections import OrderedDict
 from collections import namedtuple
 from torch.utils.data import Dataset
@@ -61,7 +60,7 @@ class GLREDataset(Dataset):
             self.word2index.keys()), {'<UNK>': 1}
 
         self.singletons = []
-
+        self.unk_w_prob = args.unk_w_prob
         # 每篇文档的id以及文档的句子 [{"doc_id":id,"text":[sentences]}]
         self.documents = []
         # 每篇文档出现的实体 {doc_id:{entity_id:{entity_info_dict}}}
@@ -426,7 +425,7 @@ class GLREDataset(Dataset):
                     if word not in self.word2index:
                         # UNK words = singletons for train
                         sent += [self.word2index['UNK']]
-                    elif (word in self.singletons) and (random.uniform(0, 1) < float(UNK_W_PROB)):
+                    elif (word in self.singletons) and (random.uniform(0, 1) < float(self.unk_w_prob)):
                         sent += [self.word2index['UNK']]
                     else:
                         sent += [self.word2index[word]]
@@ -662,7 +661,7 @@ class GLREDataset(Dataset):
         return data
 
 
-def collate_fn(batch, NA_id, istrain=False):
+def collate_fn(batch, NA_id,NA_NUM, istrain=False):
     """_summary_
     Args:
         batch (_type_): _description_
@@ -723,7 +722,7 @@ def collate_fn(batch, NA_id, istrain=False):
         # 按照一定概率对存在NA关系的实体对修改其值，即生成soft label
         index = new_batch['multi_relations'][:, :, :, NA_id].nonzero()
         if index.size(0) != 0:
-            # 随机生成len(index)个值，且其值小于NA_NUM
+            # 随机生成len(index)个值，且其值小于
             value = (torch.rand(len(index)) < NA_NUM).float()
             if (value == 0).all():
                 value[0] = 1.0
