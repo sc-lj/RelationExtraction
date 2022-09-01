@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence,pad_sequence
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, pad_sequence
 from torch.autograd import Variable
 
 
@@ -27,8 +27,6 @@ def sparse_mxs_to_torch_sparse_tensor(sparse_mxs):
     values = torch.FloatTensor(value)
     shape = torch.Size([len(sparse_mxs), max_shape, max_shape])
     return torch.sparse.FloatTensor(indices, values, shape)
-
-
 
 
 def get_distance(e1_sentNo, e2_sentNo):
@@ -69,7 +67,8 @@ def split_n_pad(nodes, section, pad=0, return_mask=False):
     Returns:
         [type]: [description]
     """
-    assert nodes.shape[0] == sum(section.tolist()), print(nodes.shape[0], sum(section.tolist()))
+    assert nodes.shape[0] == sum(section.tolist()), print(
+        nodes.shape[0], sum(section.tolist()))
     # 单独切分每个句子的word的表征，sent_num(句子数量)个[word_num(每个句子word数量),hidden_size]
     nodes = torch.split(nodes, section.tolist())
     # [sent_num,max_word_num,hidden_size]
@@ -78,7 +77,8 @@ def split_n_pad(nodes, section, pad=0, return_mask=False):
         return nodes
     else:
         max_v = max(section.tolist())
-        temp_ = torch.arange(max_v).unsqueeze(0).repeat(nodes.size(0), 1).to(nodes)
+        temp_ = torch.arange(max_v).unsqueeze(
+            0).repeat(nodes.size(0), 1).to(nodes)
         mask = (temp_ < section.unsqueeze(1))
         # mask = torch.zeros(nodes.size(0), max_v).to(nodes)
         # for index, sec in enumerate(section.tolist()):
@@ -96,9 +96,11 @@ def rm_pad(input, lens, max_v=None):
     if max_v is None:
         max_v = lens.max()
     # [sent_num,max_word_num]
-    temp_ = torch.arange(max_v).unsqueeze(0).repeat(lens.size(0), 1).to(input.device)
+    temp_ = torch.arange(max_v).unsqueeze(
+        0).repeat(lens.size(0), 1).to(input.device)
     remove_pad = (temp_ < lens.unsqueeze(1))
     return input[remove_pad]
+
 
 def rm_pad_between(input, s_lens, e_lens, max_v):
     """
@@ -106,7 +108,8 @@ def rm_pad_between(input, s_lens, e_lens, max_v):
     :param lens: batch_size
     :return:
     """
-    temp_ = torch.arange(max_v).unsqueeze(0).repeat(s_lens.size(0), 1).to(input.device)
+    temp_ = torch.arange(max_v).unsqueeze(0).repeat(
+        s_lens.size(0), 1).to(input.device)
     # print(temp_ < e_lens.unsqueeze(1))
     remove_pad = (temp_ < e_lens.unsqueeze(1)) & (temp_ >= s_lens.unsqueeze(1))
     return input[remove_pad]
@@ -132,7 +135,7 @@ def pool(h, mask, type='max'):
         return h.sum(-2) / (mask.size(-2) - mask.float().sum(-2))
     elif type == "logsumexp":
         h = h.masked_fill(mask, -1e12)
-        return torch.logsumexp(h,-2)
+        return torch.logsumexp(h, -2)
     else:
         h = h.masked_fill(mask, 0)
         return h.sum(-2)
@@ -196,10 +199,13 @@ class EmbedLayer(nn.Module):
         # pret_embeds = nn.init.normal_(torch.empty((self.num_embeddings, self.embedding_dim)))
         for word in mapping.keys():
             if word in pretrained:
-                pret_embeds[mapping[word], :] = torch.from_numpy(pretrained[word])
+                pret_embeds[mapping[word], :] = torch.from_numpy(
+                    pretrained[word])
             elif word.lower() in pretrained:
-                pret_embeds[mapping[word], :] = torch.from_numpy(pretrained[word.lower()])
-        self.embedding = self.embedding.from_pretrained(pret_embeds, freeze=self.freeze) # , padding_idx=self.ignore
+                pret_embeds[mapping[word], :] = torch.from_numpy(
+                    pretrained[word.lower()])
+        self.embedding = self.embedding.from_pretrained(
+            pret_embeds, freeze=self.freeze)  # , padding_idx=self.ignore
 
     def forward(self, xs):
         """
@@ -257,9 +263,11 @@ class Encoder(nn.Module):
 
     @staticmethod
     def sort(lengths):
-        sorted_len, sorted_idx = lengths.sort()  # indices that result in sorted sequence
+        # indices that result in sorted sequence
+        sorted_len, sorted_idx = lengths.sort()
         _, original_idx = sorted_idx.sort(0, descending=True)
-        reverse_idx = torch.linspace(lengths.size(0) - 1, 0, lengths.size(0)).long()  # for big-to-small
+        reverse_idx = torch.linspace(lengths.size(
+            0) - 1, 0, lengths.size(0)).long()  # for big-to-small
 
         return sorted_idx, original_idx, reverse_idx
 
@@ -275,10 +283,12 @@ class Encoder(nn.Module):
         # sort sequence
         sorted_idx, original_idx, reverse_idx = self.sort(lengths)
         # pad - sort - pack
-        embeds = nn.utils.rnn.pad_sequence(embeds, batch_first=True, padding_value=0)
+        embeds = nn.utils.rnn.pad_sequence(
+            embeds, batch_first=True, padding_value=0)
         embeds = embeds[sorted_idx][reverse_idx]  # big-to-small
         embeds = self.drop(embeds)  # apply dropout for input
-        packed = pack_padded_sequence(embeds, list(lengths[sorted_idx][reverse_idx].data), batch_first=True)
+        packed = pack_padded_sequence(embeds, list(
+            lengths[sorted_idx][reverse_idx].data), batch_first=True)
 
         self.enc.flatten_parameters()
         out_packed, (h, c) = self.enc(packed, hidden)
@@ -310,7 +320,8 @@ class EncoderLSTM(nn.Module):
             else:
                 input_size_ = num_units if not bidir else num_units * 2
                 output_size_ = num_units
-            self.rnns.append(nn.LSTM(input_size_, output_size_, 1, bidirectional=bidir, batch_first=True))
+            self.rnns.append(nn.LSTM(input_size_, output_size_,
+                             1, bidirectional=bidir, batch_first=True))
         self.rnns = nn.ModuleList(self.rnns)
 
         self.init_hidden = nn.ParameterList(
@@ -325,9 +336,11 @@ class EncoderLSTM(nn.Module):
 
     @staticmethod
     def sort(lengths):
-        sorted_len, sorted_idx = lengths.sort()  # indices that result in sorted sequence
+        # indices that result in sorted sequence
+        sorted_len, sorted_idx = lengths.sort()
         _, original_idx = sorted_idx.sort(0, descending=True)
-        reverse_idx = torch.linspace(lengths.size(0) - 1, 0, lengths.size(0)).long()  # for big-to-small
+        reverse_idx = torch.linspace(lengths.size(
+            0) - 1, 0, lengths.size(0)).long()  # for big-to-small
 
         return sorted_idx, original_idx, reverse_idx
 
@@ -347,7 +360,8 @@ class EncoderLSTM(nn.Module):
         sorted_idx, original_idx, reverse_idx = self.sort(input_lengths)
 
         # pad - sort - pack
-        input = nn.utils.rnn.pad_sequence(input, batch_first=True, padding_value=0)
+        input = nn.utils.rnn.pad_sequence(
+            input, batch_first=True, padding_value=0)
         input = input[sorted_idx][reverse_idx]  # big-to-small
 
         bsz, slen = input.size(0), input.size(1)
@@ -368,7 +382,8 @@ class EncoderLSTM(nn.Module):
             output, _ = pad_packed_sequence(output, batch_first=True)
             if output.size(1) < slen:  # used for parallel
                 padding = Variable(output.data.new(1, 1, 1).zero_())
-                output = torch.cat([output, padding.expand(output.size(0), slen - output.size(1), output.size(2))], dim=1)
+                output = torch.cat([output, padding.expand(output.size(
+                    0), slen - output.size(1), output.size(2))], dim=1)
 
             hiddens.append(hidden.permute(1, 0, 2).contiguous().view(bsz, -1))
             outputs.append(output)
@@ -404,4 +419,3 @@ class Classifier(nn.Module):
 
         xs = self.lin(xs)
         return xs
-
