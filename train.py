@@ -13,13 +13,13 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 def parser_args():
-    parser = argparse.ArgumentParser(description='TDEER cli')
-    parser.add_argument('--model_type', default="glre",
+    parser = argparse.ArgumentParser(description='各个模型公用参数')
+    parser.add_argument('--model_type', default="one4rel",
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/DocRED", help='specify the train path')
+                        default="data/data/NYT", help='specify the train path')
     parser.add_argument('--learning_rate', default=5e-5,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -28,86 +28,14 @@ def parser_args():
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
-    parser.add_argument('--config_dir', default="GLRE",
-                        type=str, help='每个模型的超参数配置,就在每个模型文件夹下')
-    parser.add_argument('--dropout_prob', default=0.1, type=float,
-                        help='dropout rate')
-    parser.add_argument('--entity_pair_dropout', default=0.1, type=float,
-                        help='实体对的dropout rate')
 
-    # For TDEER Model
-    parser.add_argument('--max_sample_triples', default=None,
-                        type=int, help='specify max sample triples')
-    parser.add_argument('--neg_samples', default=2, type=int,
-                        help='specify negative sample num')
+    args = parser.parse_args()
+    # 根据超参数文件更新参数
+    config_file = os.path.join("config","{}.yaml".format(args.model_type))
+    with open(config_file,'r') as f:
+        config = yaml.load(f,Loader=yaml.Loader)
+    args = update_arguments(args,config)
 
-    # for TPlinker Model
-    parser.add_argument('--shaking_type', default="cln_plus", choices=['cat', "cat_plus", "cln", "cln_plus"],
-                        type=str, help='specify max sample triples')
-    parser.add_argument('--tok_pair_sample_rate', default=1,)
-    parser.add_argument('--inner_enc_type', default="lstm", type=str, choices=['mix_pooling', "max_pooling", "mean_pooling", "lstm"],
-                        help='valid only if cat_plus or cln_plus is set. It is the way how to encode inner tokens between each token pairs. If you only want to reproduce the results, just leave it alone.')
-    parser.add_argument('--match_pattern', default="whole_text", choices=["whole_text"],
-                        type=str, help='specify max sample triples')
-    parser.add_argument('--max_seq_len', default=512, type=int,
-                        help='specify negative sample num')
-    parser.add_argument('--sliding_len', default=20, type=int,
-                        help='specify negative sample num')
-    parser.add_argument('--loss_weight_recover_steps', default=6000, type=int,
-                        help='the paramter of encoder lstm ')
-
-    parser.add_argument('--encoder', default="BERT",
-                        type=str, help='specify max sample triples')
-    parser.add_argument('--data_out_dir', default="./data/data/NYT", type=str,
-                        help='处理后的数据保存的路径')
-    # for tplinker preprocess args
-    parser.add_argument('--separate_char_by_white', default=False, type=bool,
-                        help='e.g. "$%sdkn839," -> "$% sdkn839," , will make original char spans invalid')
-    parser.add_argument('--add_char_span', default=True, type=bool,
-                        help='set add_char_span to false if it already exists')
-    parser.add_argument('--ignore_subword', default=True, type=bool,
-                        help=' when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese')
-    parser.add_argument('--check_tok_span', default=True, type=bool,
-                        help="check whether there is any error with token spans, if there is, print the unmatch info")
-    parser.add_argument('--ghm', default=False,
-                        type=bool, help="是否使用GHM算法进行损失平滑")
-    parser.add_argument('--decay_rate', default=0.999,
-                        type=float, help="StepLR 参数")
-    parser.add_argument('--decay_steps', default=100,
-                        type=int, help="StepLR 参数")
-    parser.add_argument('--T_mult', default=1, type=float,
-                        help="CosineAnnealingWarmRestarts 参数")
-    parser.add_argument('--rewarm_epoch_num', default=2,
-                        type=int, help="CosineAnnealingWarmRestarts 参数")
-
-    # for PRGC model
-    parser.add_argument('--corres_threshold', type=float,
-                        default=0.5, help="threshold of global correspondence")
-    parser.add_argument('--rel_threshold', type=float,
-                        default=0.5, help="threshold of relation judgement")
-    parser.add_argument('--emb_fusion', type=str,
-                        default="concat", help="way to embedding")
-    parser.add_argument('--ensure_rel', default=True, help="是否需要对关系进行负采样")
-    parser.add_argument('--num_negs', type=int, default=4,
-                        help="当对关系进行负采样时,负采样的个数")
-    parser.add_argument('--drop_prob', type=float,
-                        default=0.2, help="对各个预测模块采用的drop out率")
-
-    # for span4re model argument
-    parser.add_argument('--loss_weight', type=list,
-                        default=[1, 2, 2], help="关系,subject和object的损失权重")
-    parser.add_argument('--na_rel_coef', type=float,
-                        default=1, help="无关关系的权重系数")
-    parser.add_argument('--matcher', type=str,
-                        default="avg", choices=['avg', 'min'])
-    parser.add_argument('--num_decoder_layers', type=int,
-                        default=3, help="decoder 的层数")
-    parser.add_argument('--num_generated_triples', type=int, default=10,
-                        help="解码时，最大生成triple的数量")
-    parser.add_argument('--n_best_size', type=int, default=5,
-                        help="解码时,选择前多少个triple作为最终的triple")
-
-    args = parser.parse_args(args=[])
     return args
 
 
@@ -166,7 +94,8 @@ def main():
         from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
-        max_length = statistics_text_length(args.train_file, tokenizer)
+        filename =os.path.join(args.data_dir, "train_triples.json")
+        max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_seq_len = max_length
 
@@ -185,7 +114,8 @@ def main():
         from SPN4RE import Span4REPytochLighting, Span4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
-        max_length = statistics_text_length(args.train_file, tokenizer)
+        filename =os.path.join(args.data_dir, "train_triples.json")
+        max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_span_length = max_length
         train_dataset = Span4REDataset(args, is_training=True)
@@ -218,10 +148,6 @@ def main():
 
     elif args.model_type == "glre":
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
-        config_file = os.path.join(args.config_dir,"config.yaml")
-        with open(config_file,'r') as f:
-            config = yaml.load(f,Loader=yaml.Loader)
-        args = update_arguments(args,config)
         train_dataset = GLREDataset(args, is_training=True)
         relation_number = train_dataset.n_rel
         label2ignore = train_dataset.label2ignore

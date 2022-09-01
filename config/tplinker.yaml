@@ -1,0 +1,30 @@
+model_name: tplinker
+
+# shaking 类型
+shaking_type: cln_plus # 'cat', "cat_plus", "cln", "cln_plus"
+tok_pair_sample_rate: 1
+# valid only if cat_plus or cln_plus is set. It is the way how to encode inner tokens between each token pairs. If you only want to reproduce the results, just leave it alone.
+inner_enc_type: lstm # 'mix_pooling', "max_pooling", "mean_pooling", "lstm"
+match_pattern: whole_text
+sliding_len: 20
+encoder: "BERT"
+# 是否使用GHM算法进行损失平滑
+ghm: false
+# StepLR 参数
+decay_rate: 0.999
+decay_steps: 100
+# CosineAnnealingWarmRestarts 参数
+T_mult: 1.
+rewarm_epoch_num: 2
+
+# tplinker 数据预处理的相关参数
+# 处理后的数据保存的路径
+data_out_dir: ./data/data/NYT
+# e.g. "$%sdkn839," -> "$% sdkn839," , will make original char spans invalid
+separate_char_by_white: false
+add_char_span: true
+# when adding character level spans, match words with whitespace around: " word ", to avoid subword match, set false for chinese
+ignore_subword: true
+# check whether there is any error with token spans, if there is, print the unmatch info
+check_tok_span: true
+

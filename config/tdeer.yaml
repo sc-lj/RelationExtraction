@@ -1,0 +1,8 @@
+model_name: tdeer
+
+# specify max sample triples
+max_sample_triples: 
+
+# specify negative sample num
+neg_samples: 2
+

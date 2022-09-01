@@ -1,0 +1,14 @@
+model_name: prgc
+# threshold of global correspondence
+corres_threshold: 0.5
+# threshold of relation judgement
+rel_threshold: 0.5
+# way to embedding
+emb_fusion: "concat"
+# 是否需要对关系进行负采样
+ensure_rel: true
+# 当对关系进行负采样时,负采样的个数
+num_negs: 4
+# 对各个预测模块采用的drop out率
+drop_prob: 0.2
+

@@ -1,0 +1,16 @@
+model_name: spn4re
+# 关系,subject和object的损失权重
+loss_weight:
+- 1
+- 2
+- 2
+# 无关关系的权重系数
+na_rel_coef: 1
+matcher: avg # ['avg', 'min']
+# decoder 的层数
+num_decoder_layers: 3
+# 解码时，最大生成triple的数量
+num_generated_triples: 10
+# 解码时,选择前多少个triple作为最终的triple
+n_best_size: 5
+
