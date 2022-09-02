@@ -33,6 +33,15 @@ class Attention(nn.Module):
         self.attention_epsilon = 1e10
 
     def forward(self, input_ids, mask):
+        """
+        Args:
+            input_ids ([type]): [shape:[batch_size,seq_len,hidden_size]]
+            mask ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        # [batch_size,seq_len,hidden_size]
         q = self.query(input_ids)
         k = self.key(input_ids)
         v = self.value(input_ids)
@@ -40,11 +49,13 @@ class Attention(nn.Module):
         q = self.attention_activation(q)
         k = self.attention_activation(k)
         v = self.attention_activation(v)
-
+        # [batch_size,seq_len,seq_len]
         e = torch.matmul(q, k.transpose(2, 1))
         e -= self.attention_epsilon * (1.0 - mask)
         a = torch.softmax(e, -1)
+        # [batch_size,seq_len,hidden_size]
         v_o = torch.matmul(a, v)
+        # 残差连接
         v_o += input_ids
         return v_o
 
@@ -197,7 +208,7 @@ class TDEER(nn.Module):
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1, 0)
         last_hidden_size = self.conditionlayernormal(
-            last_hidden_size, rel_feature+sub_feature)  # [batch_size,seq_len,hidden_size
+            last_hidden_size, rel_feature+sub_feature)  # [batch_size,seq_len,hidden_size]
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
         obj_feature = last_hidden_size
@@ -241,11 +252,11 @@ class TDEER(nn.Module):
 
     def expand_attention_masks(self, attention_mask):
         batch_size, seq_length = attention_mask.shape
+        # [batch_size,seq_len,seq_len]
         causal_mask = attention_mask.unsqueeze(2).repeat(
             1, 1, seq_length) * attention_mask[:, None, :]
-        # in case past_key_values are used we need to add a prefix ones mask to the causal mask
-        # causal and attention masks must have same type with pytorch version < 1.3
         causal_mask = causal_mask.to(attention_mask.dtype)
+        # [batch_size,1,seq_len,seq_len]
         extended_attention_mask = causal_mask[:, None, :, :]
         extended_attention_mask = (1e-10)*(1-extended_attention_mask)
         return extended_attention_mask

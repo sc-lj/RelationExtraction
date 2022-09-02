@@ -14,11 +14,11 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
     parser.add_argument('--model_type', default="glre",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
-                        default="./bertbaseuncased", help='specify the model name')
+                        default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/DocRED", help='定义')
+                        default="data/data/DocRED", help='定义数据集路径')
     parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
