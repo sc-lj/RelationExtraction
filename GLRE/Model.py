@@ -762,7 +762,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
                   dict(params=paramsbert0reg, lr=self.args.bert_lr, weight_decay=0.0),
                   dict(params=paramsothers0reg, weight_decay=0.0)]
         # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
-        optimizer = torch.optim.Adam(groups, lr=self.args.lr, weight_decay=float(self.params['reg']), amsgrad=True)
+        optimizer = torch.optim.Adam(groups, lr=self.args.lr, weight_decay=float(self.args.reg), amsgrad=True)
 
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
         milestones = list(range(2, 50, 2))

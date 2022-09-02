@@ -191,13 +191,13 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[0],
+                         gpus=[1],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation
                          callbacks=[checkpoint_callback,
                                     early_stopping_callback],
-                         accumulate_grad_batches=3,  # 累计梯度计算
+                         accumulate_grad_batches=1,  # 累计梯度计算
                          # precision=16, # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
                          progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
