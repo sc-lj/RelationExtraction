@@ -580,6 +580,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
         self.rel_size = args.rel_size
         self.ignore_label = args.label2ignore
         self.index2rel = args.index2rel
+        self.args = args
         self.loss = nn.BCEWithLogitsLoss(reduction='none')
 
     def count_predictions(self, y, t):
@@ -739,21 +740,30 @@ class GLREModuelPytochLighting(pl.LightningModule):
     def configure_optimizers(self):
         """[配置优化参数]
         """
-        param_optimizer = list(self.named_parameters())
-        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
-        optimizer_grouped_parameters = [
-            {'params': [p for n, p in param_optimizer if not any(
-                nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8, 'lr':2e-5},
-            {'params': [p for n, p in param_optimizer if any(
-                nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0, 'lr':2e-5},
-            {'params': [p for n, p in param_optimizer if not any(
-                nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8, 'lr':2e-4},
-            {'params': [p for n, p in param_optimizer if any(
-                nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0, 'lr':2e-4}
-        ]
-
+        paramsbert = []
+        paramsbert0reg = []
+        paramsothers = []
+        paramsothers0reg = []
+        for p_name, p_value in self.named_parameters():
+            if not p_value.requires_grad:
+                continue
+            if 'bert' in p_name or 'pretrain_lm' in p_name or 'word_embed' in p_name:
+                if '.bias' in p_name:
+                    paramsbert0reg += [p_value]
+                else:
+                    paramsbert += [p_value]
+            else:
+                if '.bias' in p_name:
+                    paramsothers0reg += [p_value]
+                else:
+                    paramsothers += [p_value]
+        groups = [dict(params=paramsbert, lr=self.args.bert_lr),
+                  dict(params=paramsothers),
+                  dict(params=paramsbert0reg, lr=self.args.bert_lr, weight_decay=0.0),
+                  dict(params=paramsothers0reg, weight_decay=0.0)]
         # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
-        optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
+        optimizer = torch.optim.Adam(groups, lr=self.args.lr, weight_decay=float(self.params['reg']), amsgrad=True)
+
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
         milestones = list(range(2, 50, 2))
         scheduler = torch.optim.lr_scheduler.MultiStepLR(

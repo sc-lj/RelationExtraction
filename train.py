@@ -1,4 +1,3 @@
-import json
 import os
 import yaml
 import argparse
@@ -13,14 +12,14 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 def parser_args():
-    parser = argparse.ArgumentParser(description='各个模型公用参数')
-    parser.add_argument('--model_type', default="one4rel",
+    parser = argparse.ArgumentParser(description='各个模型公共参数')
+    parser.add_argument('--model_type', default="glre",
                         type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='specify the model name')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/NYT", help='specify the train path')
-    parser.add_argument('--learning_rate', default=5e-5,
+                        default="data/data/DocRED", help='定义')
+    parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
                         help='specify the epoch size')
@@ -205,7 +204,7 @@ def main():
                          amp_level="O1",  # 混合精度训练
                          move_metrics_to_cpu=True,
                          amp_backend="apex",
-                         # resume_from_checkpoint ="lightning_logs/version_5/checkpoints/epoch=01f1=0.950acc=0.950recall=0.950.ckpt"
+                         # resume_from_checkpoint =""
                          )
     trainer.fit(model, train_dataloaders=train_dataloader,
                 val_dataloaders=val_dataloader)
