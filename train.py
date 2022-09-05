@@ -13,12 +13,12 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="glre",
-                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
+    parser.add_argument('--model_type', default="prgc",
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/DocRED", help='定义数据集路径')
+                        default="data/data/NYT", help='定义数据集路径')
     parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -109,8 +109,8 @@ def main():
         args.relation_number = relation_number
         model = PRGCPytochLighting(args)
 
-    elif args.model_type == "span4re":
-        from SPN4RE import Span4REPytochLighting, Span4REDataset, collate_fn
+    elif args.model_type == "spn4re":
+        from SPN4RE import Spn4REPytochLighting, Span4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         filename =os.path.join(args.data_dir, "train_triples.json")
@@ -127,7 +127,7 @@ def main():
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         args.steps = len(train_dataset)
-        model = Span4REPytochLighting(args)
+        model = Spn4REPytochLighting(args)
 
     elif args.model_type == "one4rel":
         from OneRel import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
@@ -191,7 +191,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[1],
+                         gpus=[0],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

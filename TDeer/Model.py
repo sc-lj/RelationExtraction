@@ -281,6 +281,7 @@ class TDEERPytochLighting(pl.LightningModule):
         self.threshold = 0.5
         self.args = args
         self.epoch = 0
+        self.loss_weight = args.loss_weight
         self.save_hyperparameters(args)
 
     def forward(self, *args, **kwargs):
@@ -304,8 +305,10 @@ class TDEERPytochLighting(pl.LightningModule):
                             relation=batch_sample_rel, sub_head=batch_sample_subj_head, sub_tail=batch_sample_subj_tail)
         pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head = output
 
+        loss = 0
         rel_loss = self.rel_loss(pred_rels, batch_rels) + \
             self.focal_loss(pred_rels, batch_rels)
+        loss += self.loss_weight[0]*rel_loss
 
         batch_text_mask = batch_text_masks.reshape(-1, 1)
 
@@ -315,6 +318,7 @@ class TDEERPytochLighting(pl.LightningModule):
             pred_entity_heads, batch_entity_heads)
         entity_head_loss = (
             entity_head_loss*batch_text_mask).sum()/batch_text_mask.sum()
+        loss += self.loss_weight[1]*entity_head_loss
 
         pred_entity_tails = pred_entity_tails.reshape(-1, 2)
         batch_entity_tails = batch_entity_tails.reshape(-1, 2)
@@ -322,14 +326,16 @@ class TDEERPytochLighting(pl.LightningModule):
             pred_entity_tails, batch_entity_tails)
         entity_tail_loss = (
             entity_tail_loss*batch_text_mask).sum()/batch_text_mask.sum()
+        loss += self.loss_weight[2]*entity_tail_loss
 
         pred_obj_head = pred_obj_head.reshape(-1, 1)
         batch_sample_obj_heads = batch_sample_obj_heads.reshape(-1, 1)
         obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads) + \
             self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
+        loss += self.loss_weight[3]*entity_tail_loss
 
-        return rel_loss+entity_head_loss+entity_tail_loss+5*obj_loss
+        return loss
 
     def validation_step(self, batch, step_idx):
         batch_texts, batch_offsets, batch_tokens, batch_attention_masks, batch_segments, batch_triple_sets, batch_triples_index_set, batch_text_masks = batch

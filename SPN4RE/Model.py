@@ -450,7 +450,7 @@ class SetPred4RE(nn.Module):
         return outputs
 
 
-class Span4REPytochLighting(pl.LightningModule):
+class Spn4REPytochLighting(pl.LightningModule):
     def __init__(self,args) -> None:
         super().__init__()
         self.args = args

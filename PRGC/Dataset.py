@@ -44,7 +44,6 @@ class PRGCDataset(Dataset):
         self.rel2id = relation[1]
         self.rels_set = list(self.rel2id.values())
         self.relation_size = len(self.rel2id)
-        self.max_sample_triples = args.max_sample_triples
         if is_training:
             filename = os.path.join(args.data_dir, "train_triples.json")
         else:
@@ -69,7 +68,7 @@ class PRGCDataset(Dataset):
             example = InputExample(
                 text=text, en_pair_list=en_pair_list, re_list=re_list, rel2ens=rel2ens)
             examples.append(example)
-        max_text_len = self.args.max_seq_len
+        max_text_len = min(self.args.max_seq_len+2,512)
         # multi-process
         # with Pool(10) as p:
         #     convert_func = functools.partial(self.convert, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
@@ -96,9 +95,9 @@ class PRGCDataset(Dataset):
         """
         text_tokens = tokenizer.tokenize(example.text)
         # cut off
-        if len(text_tokens) > max_text_len:
-            text_tokens = text_tokens[:max_text_len]
-
+        if len(text_tokens) > max_text_len-2:
+            text_tokens = text_tokens[:max_text_len-2]
+        text_tokens = ["[CLS]"] + text_tokens +["[SEP]"]
         # token to id
         input_ids = tokenizer.convert_tokens_to_ids(text_tokens)
         attention_mask = [1] * len(input_ids)
