@@ -183,8 +183,6 @@ class TDEER(nn.Module):
             _type_: _description_
         """
         # last_hidden_size = self.words_dropout(last_hidden_size)
-        # attention_mask = self.expand_attention_masks(attention_mask)
-        attention_mask = attention_mask.unsqueeze(1)
         # [batch_size,1,hidden_size]
         rel_feature = self.relation_embedding(relation)
         # [batch_size,1,hidden_size]
@@ -212,8 +210,15 @@ class TDEER(nn.Module):
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
         obj_feature = last_hidden_size
+        
+        # bert self attention
+        # attention_mask = self.expand_attention_masks(attention_mask)
         # value,*_ = self.attention(obj_feature,attention_mask)
+        # value = value+obj_feature # 残差结构
+
+        attention_mask = attention_mask.unsqueeze(1)
         value = self.attention(obj_feature, attention_mask)
+
         # [batch_size,seq_len,1]
         pred_obj_head = self.obj_head(value)
         # [batch_size,seq_len]

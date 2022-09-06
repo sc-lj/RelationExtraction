@@ -82,19 +82,16 @@ class OneRelDataset(Dataset):
             text_len = len(tokens)
             s2ro_map = {}
             for triple in line['triple_list']:
-                triple = (self.tokenizer.tokenize(
-                    triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
+                triple = (self.tokenizer.tokenize(triple[0]), triple[1], self.tokenizer.tokenize(triple[2]))
                 sub_head_idx = find_head_idx(tokens, triple[0], 0)
-                obj_head_idx = find_head_idx(
-                    tokens, triple[2], sub_head_idx + len(triple[0]))
+                obj_head_idx = find_head_idx(tokens, triple[2], sub_head_idx + len(triple[0]))
                 if obj_head_idx == -1:
                     obj_head_idx = find_head_idx(tokens, triple[2], 0)
                 if sub_head_idx != -1 and obj_head_idx != -1:
                     sub = (sub_head_idx, sub_head_idx + len(triple[0]) - 1)
                     if sub not in s2ro_map:
                         s2ro_map[sub] = []
-                    s2ro_map[sub].append(
-                        (obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
+                    s2ro_map[sub].append((obj_head_idx, obj_head_idx + len(triple[2]) - 1, self.rel2id[triple[1]]))
 
             if s2ro_map:
                 token_output = self.tokenizer(

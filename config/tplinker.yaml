@@ -10,12 +10,6 @@ sliding_len: 20
 encoder: "BERT"
 # 是否使用GHM算法进行损失平滑
 ghm: false
-# StepLR 参数
-decay_rate: 0.999
-decay_steps: 100
-# CosineAnnealingWarmRestarts 参数
-T_mult: 1.
-rewarm_epoch_num: 2
 
 # tplinker 数据预处理的相关参数
 # 处理后的数据保存的路径

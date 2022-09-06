@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
-class Span4REDataset(Dataset):
+class Spn4REDataset(Dataset):
     def __init__(self, args, is_training) -> None:
         super().__init__()
         self.tokenizer = BertTokenizerFast.from_pretrained(

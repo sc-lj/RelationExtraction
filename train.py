@@ -13,12 +13,12 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="prgc",
+    parser.add_argument('--model_type', default="glre",
                         type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/NYT", help='定义数据集路径')
+                        default="data/data/DocRED", help='定义数据集路径')
     parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -27,6 +27,16 @@ def parser_args():
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
+    parser.add_argument('--float16', default=False,type=bool, help='是否采用浮点16进行半精度计算')
+
+    # 不同学习率scheduler的参数
+    parser.add_argument('--decay_rate', default=0.999, type=float,
+                        help='StepLR scheduler 相关参数')
+    parser.add_argument('--decay_steps', default=100,type=int, help='StepLR scheduler 相关参数')
+
+    parser.add_argument('--T_mult', default=1.0, type=float,
+                        help='CosineAnnealingWarmRestarts scheduler 相关参数')
+    parser.add_argument('--rewarm_epoch_num', default=2,type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
 
     args = parser.parse_args()
     # 根据超参数文件更新参数
@@ -110,17 +120,17 @@ def main():
         model = PRGCPytochLighting(args)
 
     elif args.model_type == "spn4re":
-        from SPN4RE import Spn4REPytochLighting, Span4REDataset, collate_fn
+        from SPN4RE import Spn4REPytochLighting, Spn4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(
             args.pretrain_path, cache_dir="./bertbaseuncased")
         filename =os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_span_length = max_length
-        train_dataset = Span4REDataset(args, is_training=True)
+        train_dataset = Spn4REDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
-        val_dataset = Span4REDataset(args, is_training=False)
+        val_dataset = Spn4REDataset(args, is_training=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
 
@@ -198,9 +208,13 @@ def main():
                          callbacks=[checkpoint_callback,
                                     early_stopping_callback],
                          accumulate_grad_batches=1,  # 累计梯度计算
-                         # precision=16, # 半精度训练
+                         precision=16 if args.float16 else 32, # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
                          progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
+                         # O0：纯FP32训练,
+                         # O1：混合精度训练，根据黑白名单自动决定使用FP16（GEMM, 卷积）还是FP32（Softmax）进行计算。
+                         # O2：“几乎FP16”混合精度训练，不存在黑白名单，除了Batch norm，几乎都是用FP16计算
+                         # O3：纯FP16训练，很不稳定，但是可以作为speed的baseline；
                          amp_level="O1",  # 混合精度训练
                          move_metrics_to_cpu=True,
                          amp_backend="apex",

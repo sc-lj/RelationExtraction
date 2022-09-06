@@ -463,9 +463,10 @@ class GLREDataset(Dataset):
                        min([int(me) for me in i['mend']]), int(i['sentNo'][0]), 0]]
             for sen_id in i['sentNo']:
                 ent_sen_mask[id_][int(sen_id)] = 1.0
+        # 出现的实体数量
         entity_size = len(nodes)
 
-        # mention节点信息
+        # 所有mention节点信息
         nodes_mention = []
         for id_, (e, i) in enumerate(self.entities[pmid].items()):
             for sent_id, m1, m2 in zip(i['sentNo'], i['mstart'], i['mend']):
@@ -473,8 +474,7 @@ class GLREDataset(Dataset):
                 ent += [[id_, self.type2index[i['type'][0]],
                          int(m1), int(m2), int(sent_id), 1]]
                 # id_,实体类型，实体start index，end index，句子id，节点类型id
-                nodes_mention += [[id_, self.type2index[i['type']
-                                                        [0]], int(m1), int(m2), int(sent_id), 1]]
+                nodes_mention += [[id_, self.type2index[i['type'][0]], int(m1), int(m2), int(sent_id), 1]]
 
         ent.sort(key=lambda x: x[0], reverse=False)
         nodes_mention.sort(key=lambda x: x[0], reverse=False)
