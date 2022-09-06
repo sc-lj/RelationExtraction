@@ -210,7 +210,7 @@ class TDEER(nn.Module):
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
         obj_feature = last_hidden_size
-        
+
         # bert self attention
         # attention_mask = self.expand_attention_masks(attention_mask)
         # value,*_ = self.attention(obj_feature,attention_mask)

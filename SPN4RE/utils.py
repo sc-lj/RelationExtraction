@@ -151,6 +151,7 @@ def generate_strategy(pred_rel, pred_head, pred_tail, num_classes, _Pred_Triple)
     else:
         return
 
+
 def formulate_gold(target, info):
     sent_idxes = info["sent_idx"]
     gold = {}
@@ -162,4 +163,3 @@ def formulate_gold(target, info):
                 ), target[i]["tail_start_index"][j].item(), target[i]["tail_end_index"][j].item())
             )
     return gold
-
