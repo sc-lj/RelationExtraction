@@ -52,6 +52,7 @@ class TDEERDataset(Dataset):
             text_tokened = self.tokenizer(text, return_offsets_mapping=True)
             input_ids = text_tokened['input_ids']
             attention_masks = text_tokened['attention_mask']
+            # 将[cls]和[sep]mask掉
             text_masks = self.get_text_mask(attention_masks)
             token_type_ids = text_tokened['token_type_ids']
             offset_mapping = text_tokened['offset_mapping']
@@ -107,6 +108,7 @@ class TDEERDataset(Dataset):
             text_tokened = self.tokenizer(text, return_offsets_mapping=True)
             input_ids = text_tokened['input_ids']
             attention_masks = text_tokened['attention_mask']
+            # 将[cls]和[sep]mask掉
             text_masks = self.get_text_mask(attention_masks)
             token_type_ids = text_tokened['token_type_ids']
             offset_mapping = text_tokened['offset_mapping']

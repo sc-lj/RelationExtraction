@@ -30,4 +30,6 @@ mlp_layers: 1
 mlp_dim: 512
 # 将标签信息融入到训练中的attention中了？
 context_att: false 
+reg: 0.0
+bert_lr: 1e-5
 

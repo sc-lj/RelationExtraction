@@ -55,7 +55,6 @@ class GLREDataset(Dataset):
         
         self.word2index = json.load(
             open(os.path.join(args.data_dir, "word2id.json")))
-        self.index2word = {v: k for k, v in self.word2index.items()}
         self.n_words, self.word2count = len(
             self.word2index.keys()), {'<UNK>': 1}
 
@@ -260,12 +259,9 @@ class GLREDataset(Dataset):
                 # 某个实体可能出现多个句子中
                 tail_ent_info['id'] = label['t']  # 出现在vertexSet中的位置
                 tail_ent_info["name"] = [g['name'] for g in tail]
-                tail_ent_info["type"] = [str(g['type'])
-                                         for g in tail]  # 出现在不同句子中，该name的实体类型
-                tail_ent_info["mstart"] = [
-                    str(g['pos'][0]) for g in tail]  # 出现在不同句子中，开始的位置
-                tail_ent_info["mend"] = [str(g['pos'][1])
-                                         for g in tail]  # 出现在不同句子中，结束的位置
+                tail_ent_info["type"] = [str(g['type']) for g in tail]  # 出现在不同句子中，该name的实体类型
+                tail_ent_info["mstart"] = [str(g['pos'][0]) for g in tail]  # 出现在不同句子中，开始的位置
+                tail_ent_info["mend"] = [str(g['pos'][1]) for g in tail]  # 出现在不同句子中，结束的位置
                 tail_ent_info["sentNo"] = [
                     str(g['sent_id']) for g in tail]  # 出现在不同句子中的id
 
@@ -340,7 +336,6 @@ class GLREDataset(Dataset):
         if word not in self.word2index:
             self.word2index[word] = self.n_words
             self.word2count[word] = 1
-            self.index2word[self.n_words] = word
             self.n_words += 1
         else:
             if word not in self.word2count:

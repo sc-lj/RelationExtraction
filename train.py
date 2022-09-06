@@ -1,4 +1,3 @@
-import json
 import os
 import yaml
 import argparse
@@ -13,14 +12,14 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 
 def parser_args():
-    parser = argparse.ArgumentParser(description='各个模型公用参数')
-    parser.add_argument('--model_type', default="one4rel",
-                        type=str, help='specify max sample triples', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
+    parser = argparse.ArgumentParser(description='各个模型公共参数')
+    parser.add_argument('--model_type', default="glre",
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "span4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
-                        default="./bertbaseuncased", help='specify the model name')
+                        default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/NYT", help='specify the train path')
-    parser.add_argument('--learning_rate', default=5e-5,
+                        default="data/data/DocRED", help='定义数据集路径')
+    parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
                         help='specify the epoch size')
@@ -192,20 +191,20 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[0],
+                         gpus=[1],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation
                          callbacks=[checkpoint_callback,
                                     early_stopping_callback],
-                         accumulate_grad_batches=3,  # 累计梯度计算
+                         accumulate_grad_batches=1,  # 累计梯度计算
                          # precision=16, # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
                          progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
                          amp_level="O1",  # 混合精度训练
                          move_metrics_to_cpu=True,
                          amp_backend="apex",
-                         # resume_from_checkpoint ="lightning_logs/version_5/checkpoints/epoch=01f1=0.950acc=0.950recall=0.950.ckpt"
+                         # resume_from_checkpoint =""
                          )
     trainer.fit(model, train_dataloaders=train_dataloader,
                 val_dataloaders=val_dataloader)
