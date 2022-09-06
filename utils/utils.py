@@ -36,5 +36,10 @@ def update_arguments(args,config):
         config ([type]): [description]
     """
     for key,value in config.items():
+        # 对于args中设置的值为最终值,即使config里面有冲突的值,仍以args中的参数值为准
+        if key in args:
+            print(f"该参数{key}的原值为{value},新值为{args.__dict__[key]}")
+            continue
         args.__setattr__(key,value)
     return args
+

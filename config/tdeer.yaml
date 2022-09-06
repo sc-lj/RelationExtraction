@@ -6,3 +6,9 @@ max_sample_triples:
 # specify negative sample num
 neg_samples: 2
 
+loss_weight:
+- 1
+- 1
+- 1
+- 5
+
