@@ -34,13 +34,16 @@ class Spn4REDataset(Dataset):
 
         with open(filename, 'r') as f:
             lines = json.load(f)
+        self.max_length = args.max_length
         self.datas = self.preprocess(lines)
 
     def preprocess(self, lines):
         samples = []
         for i in tqdm(range(len(lines)), desc="prepare data"):
+            text = lines[i]["text"]
             token_sent = [self.tokenizer.cls_token] + self.tokenizer.tokenize(
-                self.remove_accents(lines[i]["text"])) + [self.tokenizer.sep_token]
+                self.remove_accents(text)) + [self.tokenizer.sep_token]
+            token_sent = token_sent[:self.max_length]
             triples = lines[i]["triple_list"]
             target = {"relation": [], "head_start_index": [], "head_end_index": [
             ], "tail_start_index": [], "tail_end_index": []}
@@ -58,6 +61,8 @@ class Spn4REDataset(Dataset):
                     token_sent, tail_token, head_end_index+1)
                 if tail_start_index == -1:
                     tail_start_index = find_head_idx(token_sent, tail_token, 0)
+                if head_start_index == -1 or tail_start_index == -1:
+                    continue
                 tail_end_index = tail_start_index + len(tail_token) - 1
                 assert tail_end_index >= tail_start_index
                 target["relation"].append(relation_id)
@@ -66,7 +71,7 @@ class Spn4REDataset(Dataset):
                 target["tail_start_index"].append(tail_start_index)
                 target["tail_end_index"].append(tail_end_index)
             sent_id = self.tokenizer.convert_tokens_to_ids(token_sent)
-            samples.append([i, sent_id, target])
+            samples.append([i, sent_id, target, token_sent, text])
         return samples
 
     def __len__(self,):
@@ -88,6 +93,8 @@ def collate_fn(batch_list):
     sent_idx = [ele[0] for ele in batch_list]
     sent_ids = [ele[1] for ele in batch_list]
     targets = [ele[2] for ele in batch_list]
+    tokens = [ele[3] for ele in batch_list]
+    texts = [ele[4] for ele in batch_list]
     sent_lens = list(map(len, sent_ids))
     max_sent_len = max(sent_lens)
     input_ids = torch.zeros(
@@ -100,5 +107,5 @@ def collate_fn(batch_list):
 
     targets = [{k: torch.tensor(v, dtype=torch.long)
                 for k, v in t.items()} for t in targets]
-    info = {"seq_len": sent_lens, "sent_idx": sent_idx}
+    info = {"seq_len": sent_lens, "sent_idx": sent_idx, "tokens":tokens, "texts":texts}
     return input_ids, attention_mask, targets, info

@@ -1,16 +1,13 @@
+import os
+import json
+import torch
+import numpy as np
+import torch.nn as nn
 from collections import Counter
 import pytorch_lightning as pl
-from torch.utils.data import Dataset
-import torch
-import torch.nn as nn
-import json
-from transformers import BertPreTrainedModel, BertModel,BertTokenizerFast
-import random
-import numpy as np
-from collections import defaultdict
+from utils.loss_func import GlobalCrossEntropy
+from transformers import BertPreTrainedModel, BertModel
 from PRGC.utils import tag_mapping_corres,Label2IdxSub,Label2IdxObj
-from tqdm import tqdm
-from utils.utils import find_head_idx
 
 
 class MultiNonLinearClassifier(nn.Module):
@@ -51,6 +48,70 @@ class SequenceLabelForSO(nn.Module):
         return sub_output, obj_output
 
 
+class ConditionalLayerNorm(nn.Module):
+    def __init__(self,normalized_shape,cond_shape,eps=1e-12):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.Tensor(normalized_shape))
+        self.bias = nn.Parameter(torch.Tensor(normalized_shape))
+        self.weight_dense = nn.Linear(cond_shape, normalized_shape, bias=False)
+        self.bias_dense = nn.Linear(cond_shape, normalized_shape, bias=False)
+        self.reset_weight_and_bias()
+
+    def reset_weight_and_bias(self):
+        """
+        此处初始化的作用是在训练开始阶段不让 conditional layer norm 起作用
+        """
+        nn.init.ones_(self.weight)
+        nn.init.zeros_(self.bias)
+        nn.init.zeros_(self.weight_dense.weight)
+        nn.init.zeros_(self.bias_dense.weight)
+
+    def forward(self, inputs, cond=None):
+        assert cond is not None, 'Conditional tensor need to input when use conditional layer norm'
+        # cond = torch.unsqueeze(cond, 1)  # (b, 1, h*2)
+        weight = self.weight_dense(cond) + self.weight  # (b, 1, h)
+        bias = self.bias_dense(cond) + self.bias  # (b, 1, h)
+        mean = torch.mean(inputs, dim=-1, keepdim=True)  # （b, s, 1）
+        outputs = inputs - mean  # (b, s, h)
+        variance = torch.mean(outputs ** 2, dim=-1, keepdim=True)
+        std = torch.sqrt(variance + self.eps)  # (b, s, 1)
+        outputs = outputs / std  # (b, s, h)
+        outputs = outputs*weight + bias
+        return outputs
+
+
+class biaffine(nn.Module):
+    def __init__(self, in_size, bias_x=True, bias_y=True):
+        super().__init__()
+        self.bias_x = bias_x
+        self.bias_y = bias_y
+        self.U = torch.nn.Parameter(torch.randn(in_size + int(bias_x), 1, in_size + int(bias_y)))
+
+    def forward(self, x, y):
+        if self.bias_x:
+            x = torch.cat((x, torch.ones_like(x[..., :1])), dim=-1)
+        if self.bias_y:
+            y = torch.cat((y, torch.ones_like(y[..., :1])), dim=-1)
+        bilinar_mapping = torch.einsum('bxi,ioj,byj->bxyo', x, self.U, y)
+        return bilinar_mapping
+
+
+class BiaffineTagger(nn.Module):
+    def __init__(self, hidden_size):
+        super(BiaffineTagger, self).__init__()
+        self.start_layer = nn.Linear(hidden_size, 128)
+        self.end_layer = nn.Linear(hidden_size, 128)
+        self.biaffne_layer = biaffine(128)
+
+    def forward(self, hidden):
+        start_logits = self.start_layer(hidden)
+        end_logits = self.end_layer(hidden)
+        span_logits = self.biaffne_layer(start_logits, end_logits)
+        span_logits = span_logits.squeeze(-1).contiguous()
+        return span_logits
+
+
 class PRGC(BertPreTrainedModel):
     def __init__(self, config, params):
         super().__init__(config)
@@ -66,10 +127,15 @@ class PRGC(BertPreTrainedModel):
         self.sequence_tagging_sum = SequenceLabelForSO(config.hidden_size, self.seq_tag_size, params.drop_prob)
         # global correspondence
         self.global_corres = MultiNonLinearClassifier(config.hidden_size * 2, 1, params.drop_prob)
+        self.cond_layer = ConditionalLayerNorm(config.hidden_size,config.hidden_size)
+        self.layernormal = nn.LayerNorm(config.hidden_size)
+        # 双仿射注意力机制
+        self.biaffine_tagger = BiaffineTagger(config.hidden_size)
+
         # relation judgement
         self.rel_judgement = MultiNonLinearClassifier(config.hidden_size, self.rel_num, params.drop_prob)
         self.rel_embedding = nn.Embedding(self.rel_num, config.hidden_size)
-
+        self.params = params
         self.init_weights()
 
     @staticmethod
@@ -78,38 +144,15 @@ class PRGC(BertPreTrainedModel):
         score = torch.softmax(mask_, -1)
         return torch.matmul(score.unsqueeze(1), sent).squeeze(1)
 
-    def forward(
-            self,
-            input_ids=None,
-            attention_mask=None,
-            potential_rels=None
-            ):
-        """
+    def global_corres_v0(self,sequence_output,attention_mask,seq_len):
+        """原论文中的global Correspondence 计算方式
         Args:
-            input_ids: (batch_size, seq_len)
-            attention_mask: (batch_size, seq_len)
-            rel_tags: (bs, rel_num)
-            potential_rels: (bs,), only in train stage.
-            seq_tags: (bs, 2, seq_len)
-            corres_tags: (bs, seq_len, seq_len)
-            ex_params: experiment parameters
+            sequence_output ([type]): [description]
+            attention_mask ([type]): [description]
+            seq_len ([type]): [description]
+        Returns:
+            [type]: [description]
         """
-        # pre-train model
-        outputs = self.bert(
-            input_ids,
-            attention_mask=attention_mask,
-            output_hidden_states=True
-        )  # sequence_output, pooled_output, (hidden_states), (attentions)
-        sequence_output = outputs[0]
-        bs, seq_len, h = sequence_output.size()
-
-        # 预测关系
-        # (bs, h)
-        h_k_avg = self.masked_avgpool(sequence_output, attention_mask)
-        # (bs, rel_num)
-        rel_pred = self.rel_judgement(h_k_avg)
-
-        corres_mask = None
         # before fuse relation representation
         # for every position $i$ in sequence, should concate $j$ to predict.
         sub_extend = sequence_output.unsqueeze(2).expand(-1, -1, seq_len, -1)  # (bs, s, s, h)
@@ -121,7 +164,52 @@ class PRGC(BertPreTrainedModel):
         mask_tmp1 = attention_mask.unsqueeze(-1)
         mask_tmp2 = attention_mask.unsqueeze(1)
         corres_mask = mask_tmp1 * mask_tmp2
+        return corres_pred,corres_mask
 
+    def global_corres_biaffine(self,sequence_output,attention_mask):
+        """使用BiaffineTagger计算global Correspondence
+        Args:
+            sequence_output ([type]): [description]
+            attention_mask ([type]): [description]
+        """
+        hidden = self.layernormal(sequence_output)
+        pred_corres = self.biaffine_tagger(hidden)
+        mask_tmp1 = attention_mask.unsqueeze(-1)
+        mask_tmp2 = attention_mask.unsqueeze(1)
+        corres_mask = mask_tmp1 * mask_tmp2
+        return pred_corres,corres_mask
+
+    def forward(self, input_ids=None, attention_mask=None, potential_rels=None):
+        """
+        Args:
+            input_ids: (batch_size, seq_len)
+            attention_mask: (batch_size, seq_len)
+            rel_tags: (bs, rel_num)
+            potential_rels: (bs,), only in train stage.
+            seq_tags: (bs, 2, seq_len)
+            corres_tags: (bs, seq_len, seq_len)
+            ex_params: experiment parameters
+        """
+        # sequence_output, pooled_output, (hidden_states), (attentions)
+        outputs = self.bert(input_ids,attention_mask=attention_mask,output_hidden_states=True)
+        sequence_output = outputs[0]
+        pooled_output = outputs[1]
+        bs, seq_len, h = sequence_output.size()
+
+        # 预测关系 (bs, h)
+        if self.params.avgpool:
+            h_k_avg = self.masked_avgpool(sequence_output, attention_mask)
+            pooled_output = h_k_avg
+        rel_pred = self.rel_judgement(pooled_output) # [bs, rel_num]
+
+        if self.params.biaffine:
+            # 使用不同版本计算corres_pred
+            corres_pred,corres_mask = self.global_corres_biaffine(sequence_output,attention_mask)
+        else:
+            # 原文献中的方法
+            corres_pred,corres_mask = self.global_corres_v0(sequence_output,attention_mask,seq_len)
+
+        
         # relation predict and data construction in inference stage
         xi, pred_rels = None, None
         if potential_rels is None:
@@ -190,9 +278,18 @@ class PRGCPytochLighting(pl.LightningModule):
         self.seq_tag_size = len(Label2IdxSub)
         args.seq_tag_size = self.seq_tag_size 
         self.model = PRGC.from_pretrained(args.pretrain_path,args)
-        self.corres_threshold = 0.5
         self.save_hyperparameters(args)
-        
+        if args.is_glo:
+            self.corres_threshold = 0.
+            self.corres_global_loss_func = GlobalCrossEntropy()
+        else:
+            self.corres_threshold = 0.5
+            self.corres_loss_func = nn.BCEWithLogitsLoss(reduction='none')
+        self.rel_loss_func = nn.BCEWithLogitsLoss(reduction='mean')
+        self.ent_loss_func = nn.CrossEntropyLoss(reduction='none')
+        self.args = args
+        self.epoch = 0
+
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
     
@@ -204,28 +301,28 @@ class PRGCPytochLighting(pl.LightningModule):
         # calculate loss
         pos_attention_mask = pos_attention_mask.view(-1)
         # sequence label loss
-        loss_func = nn.CrossEntropyLoss(reduction='none')
-        loss_seq_sub = (loss_func(output_sub.view(-1, self.seq_tag_size),
+        loss_seq_sub = (self.ent_loss_func(output_sub.view(-1, self.seq_tag_size),
                                     seq_tags[:, 0, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
-        loss_seq_obj = (loss_func(output_obj.view(-1, self.seq_tag_size),
+        loss_seq_obj = (self.ent_loss_func(output_obj.view(-1, self.seq_tag_size),
                                     seq_tags[:, 1, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
         loss_seq = (loss_seq_sub + loss_seq_obj) / 2
         # init
         corres_pred = corres_pred.view(bs, -1)
         corres_mask = corres_mask.view(bs, -1)
         corres_tags = corres_tags.view(bs, -1)
-        loss_func = nn.BCEWithLogitsLoss(reduction='none')
-        loss_matrix = (loss_func(corres_pred,
-                                    corres_tags.float()) * corres_mask).sum() / corres_mask.sum()
+        
+        if self.args.is_glo:
+            loss_matrix = self.corres_global_loss_func(corres_tags.float(),corres_pred)
+        else:
+            loss_matrix = (self.corres_loss_func(corres_pred,corres_tags.float()) * corres_mask).sum() / corres_mask.sum()
 
-        loss_func = nn.BCEWithLogitsLoss(reduction='mean')
-        loss_rel = loss_func(rel_pred, rel_tags.float())
+        loss_rel = self.rel_loss_func(rel_pred, rel_tags.float())
 
         loss = loss_seq + loss_matrix + loss_rel
         return loss
     
     def validation_step(self,batches,batch_idx):
-        input_ids, attention_mask, triples, input_tokens = batches
+        texts, input_ids, attention_mask, triples, input_tokens = batches
         # compute model output and loss
         output_sub, output_obj,corres_mask,_,_,corres_pred,xi,pred_rels = self.model(input_ids, attention_mask=attention_mask)
         # (sum(x_i), seq_len)
@@ -233,7 +330,10 @@ class PRGCPytochLighting(pl.LightningModule):
         pred_seq_obj = torch.argmax(torch.softmax(output_obj, dim=-1), dim=-1)
         # (sum(x_i), 2, seq_len)
         pred_seqs = torch.cat([pred_seq_sub.unsqueeze(1), pred_seq_obj.unsqueeze(1)], dim=1)
-        corres_pred = torch.sigmoid(corres_pred) * corres_mask
+        if self.args.is_glo:
+            corres_pred = corres_pred * corres_mask
+        else:
+            corres_pred = torch.sigmoid(corres_pred) * corres_mask
         # (bs, seq_len, seq_len)
         pred_corres = torch.where(corres_pred > self.corres_threshold,
                                             torch.ones(corres_pred.size(), device=corres_pred.device),
@@ -248,13 +348,19 @@ class PRGCPytochLighting(pl.LightningModule):
         xi_index = np.cumsum(xi).tolist()
         # (bs+1,)
         xi_index.insert(0, 0)
-        return pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens
+        return texts, pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens
     
     def validation_epoch_end(self, outputs):
+        os.makedirs(os.path.join(self.args.output_path,
+                    self.args.model_type), exist_ok=True)
+        writer = open(os.path.join(self.args.output_path, self.args.model_type,
+                      'val_output_{}.json'.format(self.epoch)), 'w')
         predictions = []
         ground_truths = []
         correct_num, predict_num, gold_num = 0, 0, 0
-        for pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens in outputs:
+        error_result = []
+        orders = ['subject', 'relation' , 'object']
+        for texts,pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens in outputs:
             bs = len(xi_index)-1
             for idx in range(bs):
                 pre_triple = tag_mapping_corres(predict_tags=pred_seqs[xi_index[idx]:xi_index[idx + 1]],
@@ -270,6 +376,19 @@ class PRGCPytochLighting(pl.LightningModule):
                 correct_num += len(set(pre_triples) & set(gold_triples))
                 predict_num += len(set(pre_triples))
                 gold_num += len(set(gold_triples))
+                new = [dict(zip(orders, triple)) for triple in set(pre_triples) - set(gold_triples)]
+                lack = [dict(zip(orders, triple)) for triple in set(gold_triples) - set(pre_triples)]
+                if len(new) or len(lack):
+                    result = {'text': texts[idx],
+                            'golds': [dict(zip(orders, triple)) for triple in gold_triples],
+                            'preds': [dict(zip(orders, triple)) for triple in pre_triples],
+                            'new': new,
+                            'lack': lack
+                            }
+                    error_result.append(result)
+        writer.write(json.dumps(error_result,ensure_ascii=False) + '\n')
+        writer.close()
+
         metrics = self.get_metrics(correct_num, predict_num, gold_num)
         self.log("f1",metrics["f1"], prog_bar=True)
         self.log("acc",metrics["precision"], prog_bar=True)
@@ -277,6 +396,7 @@ class PRGCPytochLighting(pl.LightningModule):
         self.log("gold_num",metrics["gold_num"], prog_bar=True)
         self.log("predict_num",metrics["predict_num"], prog_bar=True)
         self.log("correct_num",metrics["correct_num"], prog_bar=True)
+        self.epoch += 1
 
     def get_metrics(self,correct_num, predict_num, gold_num):
         p = correct_num / predict_num if predict_num > 0 else 0
@@ -310,7 +430,7 @@ class PRGCPytochLighting(pl.LightningModule):
             obj_tokens = tokens[triple[1][1]:triple[1][-1]]
             sub = _concat(sub_tokens)
             obj = _concat(obj_tokens)
-            output.append((sub, obj, rel))
+            output.append((sub, int(rel), obj))
         return output
 
 

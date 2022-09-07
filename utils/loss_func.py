@@ -226,6 +226,7 @@ class BCEFocalLoss(nn.Module):
         #     loss = loss.sum() 
         return loss
 
+
 class MLFocalLoss(nn.Module):
     """[多标签的focal loss 损失函数]
     """
@@ -302,6 +303,7 @@ class MultiCrossentropy(nn.Module):
             return loss.sum()
         return loss
 
+
 class MultiCEFocalLoss(nn.Module):
     """[多类别 focal loss函数]
     """
@@ -358,6 +360,7 @@ class MultiCEFocalLoss(nn.Module):
         #     loss = loss.sum()        
         return loss
 
+
 class FocalLoss(nn.Module):
     def __init__(self, gamma = 2, alpha = 1, size_average = True):
         super(FocalLoss, self).__init__()
@@ -403,6 +406,7 @@ class FocalLoss(nn.Module):
             return fl.mean()
         else:
             return fl.sum()
+
 
 class MultiCEBiTemperedLogisticLoss(_Loss):
     """[多类别的带噪声数据的神经网络双温逻辑损失]
@@ -600,6 +604,7 @@ class MutualInforLoss(nn.Module):
         inputs = inputs+self.tau*prior
         return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction= 'mean')
 
+
 def poly1_cross_entropy_torch(logits, labels, class_number=3, epsilon=1.0):
     """多项式损失与交叉熵进行结合
     Args:
@@ -662,6 +667,7 @@ def poly1_focal_loss_torch(logits, labels, alpha=0.25, gamma=2, num_classes=3, e
     poly1_focal_loss = focal_loss + torch.mean(epsilon * torch.pow(1 - poly1, 2 + 1), dim=-1)
     return poly1_focal_loss
 
+
 class GHM(nn.Module):
     """对损失进行正则化
     """
@@ -722,6 +728,7 @@ class GHM(nn.Module):
         weights4examples /= torch.sum(weights4examples)
         return weights4examples * gradient  # return weighted gradients
 
+
 class GHM_Loss(nn.Module):
     def __init__(self, bins, alpha):
         super(GHM_Loss, self).__init__()
@@ -752,7 +759,8 @@ class GHM_Loss(nn.Module):
         gd = torch.clamp(gd, min=0.0001)
         beta = N / gd
         return self._custom_loss(x, target, beta[bin_idx])
-        
+
+ 
 class GHMC_Loss(GHM_Loss):
     """与Focal Loss一样,GHM也是解决样本不平衡的利器
     """

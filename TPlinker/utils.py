@@ -410,58 +410,6 @@ class DataMaker4Bert():
         return sample_list, batch_input_ids, batch_attention_mask, batch_token_type_ids, tok2char_span_list, batch_shaking_tag
 
 
-class DataMaker4BiLSTM():
-    def __init__(self, text2indices, get_tok2char_span_map, shaking_tagger: HandshakingTaggingScheme):
-        self.text2indices = text2indices
-        self.shaking_tagger = shaking_tagger
-        self.get_tok2char_span_map = get_tok2char_span_map
-
-    def get_indexed_data(self, data, max_seq_len, data_type="train"):
-        indexed_samples = []
-        for ind, sample in tqdm(enumerate(data), desc="Generate indexed train or valid data"):
-            text = sample["text"]
-            # tagging
-            matrix_spots = None
-            if data_type != "test":
-                matrix_spots = self.shaking_tagger.get_spots(sample)
-            tok2char_span = self.get_tok2char_span_map(text)
-            tok2char_span.extend(
-                [(-1, -1)] * (max_seq_len - len(tok2char_span)))
-            input_ids = self.text2indices(text, max_seq_len)
-
-            sample_tp = (sample,
-                         input_ids,
-                         tok2char_span,
-                         matrix_spots,
-                         )
-            indexed_samples.append(sample_tp)
-        return indexed_samples
-
-    def generate_batch(self, batch_data, data_type="train"):
-        sample_list = []
-        input_ids_list = []
-        tok2char_span_list = []
-        matrix_spots_list = []
-
-        for tp in batch_data:
-            sample_list.append(tp[0])
-            input_ids_list.append(tp[1])
-            tok2char_span_list.append(tp[2])
-            if data_type != "test":
-                matrix_spots_list.append(tp[3])
-
-        batch_input_ids = torch.stack(input_ids_list, dim=0)
-
-        batch_shaking_tag = None
-        if data_type != "test":
-            batch_shaking_tag = self.shaking_tagger.spots2shaking_tag4batch(
-                matrix_spots_list)
-
-        return sample_list, \
-            batch_input_ids, tok2char_span_list, \
-            batch_shaking_tag
-
-
 class MetricsCalculator():
     def __init__(self, shaking_tagger: HandshakingTaggingScheme):
         self.shaking_tagger = shaking_tagger

@@ -205,8 +205,8 @@ class TDEER(nn.Module):
             rel_feature = rel_feature.transpose(1, 0)
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1, 0)
-        last_hidden_size = self.conditionlayernormal(
-            last_hidden_size, rel_feature+sub_feature)  # [batch_size,seq_len,hidden_size]
+        # [batch_size,seq_len,hidden_size]
+        last_hidden_size = self.conditionlayernormal(last_hidden_size, rel_feature+sub_feature)  
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
         obj_feature = last_hidden_size

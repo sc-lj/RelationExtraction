@@ -156,14 +156,16 @@ class PRGCDataset(Dataset):
                     corres_tag=corres_tag,
                     seq_tag=seq_tag,
                     relation=rel,
-                    rel_tag=rel_tag
+                    rel_tag=rel_tag,
+                    text = example.text
                 ))
-            # relation judgement ablation
-            if not ensure_rel:
+            # 对关系进行负采样
+            if ensure_rel:
                 # negative samples, 采样一些负样本的关系数据集
-                neg_rels = set(rel2idx.values()).difference(
-                    set(example.re_list))
-                neg_rels = random.sample(neg_rels, k=num_negs)
+                neg_rels = set(rel2idx.values()).difference(set(example.re_list))
+                # 防止负采样数量大于实际可采样数量
+                num_neg = min(len(neg_rels),self.args.num_negs)
+                neg_rels = random.sample(neg_rels, k=num_neg)
                 for neg_rel in neg_rels:
                     # init，针对关系的负样本，只对subject和object的序列全部置为O，其他的沿用正样本的数据
                     seq_tag = max_text_len * [Label2IdxSub['O']]
@@ -178,7 +180,8 @@ class PRGCDataset(Dataset):
                         corres_tag=corres_tag,
                         seq_tag=seq_tag,
                         relation=neg_rel,
-                        rel_tag=rel_tag
+                        rel_tag=rel_tag,
+                        text = example.text
                     ))
         # val and test data
         else:
@@ -196,7 +199,8 @@ class PRGCDataset(Dataset):
                     input_tokens=text_tokens,
                     input_ids=input_ids,
                     attention_mask=attention_mask,
-                    triples=triples
+                    triples=triples,
+                    text = example.text
                 )
             ]
 
@@ -227,7 +231,7 @@ class InputFeatures(object):
         a single set of features of data
     """
 
-    def __init__(self, input_tokens, input_ids, attention_mask, seq_tag=None, corres_tag=None, relation=None, triples=None, rel_tag=None):
+    def __init__(self, text, input_tokens, input_ids, attention_mask, seq_tag=None, corres_tag=None, relation=None, triples=None, rel_tag=None):
         self.input_tokens = input_tokens
         self.input_ids = input_ids
         self.attention_mask = attention_mask
@@ -236,6 +240,7 @@ class InputFeatures(object):
         self.relation = relation
         self.triples = triples
         self.rel_tag = rel_tag
+        self.text = text
 
 
 def collate_fn_train(features):
@@ -245,15 +250,18 @@ def collate_fn_train(features):
     Returns:
         tensors (List[Tensors])
     """
-    input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    attention_mask = torch.tensor(
-        [f.attention_mask for f in features], dtype=torch.long)
-    seq_tags = torch.tensor([f.seq_tag for f in features], dtype=torch.long)
-    poten_relations = torch.tensor(
-        [f.relation for f in features], dtype=torch.long)
-    corres_tags = torch.tensor(
-        [f.corres_tag for f in features], dtype=torch.long)
-    rel_tags = torch.tensor([f.rel_tag for f in features], dtype=torch.long)
+    input_ids = np.array([f.input_ids for f in features],dtype=np.int64)
+    input_ids = torch.from_numpy(input_ids)
+    attention_mask = np.array([f.attention_mask for f in features],dtype=np.int64)
+    attention_mask = torch.from_numpy(attention_mask)
+    seq_tags = np.array([f.seq_tag for f in features],dtype=np.int64)
+    seq_tags = torch.from_numpy(seq_tags)
+    poten_relations = np.array([f.relation for f in features],dtype=np.int64)
+    poten_relations = torch.from_numpy(poten_relations)
+    corres_tags = np.array([f.corres_tag for f in features],dtype=np.int64)
+    corres_tags = torch.from_numpy(corres_tags)
+    rel_tags = np.array([f.rel_tag for f in features],dtype=np.int64)
+    rel_tags = torch.from_numpy(rel_tags)
     tensors = [input_ids, attention_mask, seq_tags,
                poten_relations, corres_tags, rel_tags]
     return tensors
@@ -266,10 +274,12 @@ def collate_fn_test(features):
     Returns:
         tensors (List[Tensors])
     """
-    input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
-    attention_mask = torch.tensor(
-        [f.attention_mask for f in features], dtype=torch.long)
+    input_ids = np.array([f.input_ids for f in features],dtype=np.int64)
+    input_ids = torch.from_numpy(input_ids)
+    attention_mask = np.array([f.attention_mask for f in features],dtype=np.int64)
+    attention_mask = torch.from_numpy(attention_mask)
     triples = [f.triples for f in features]
     input_tokens = [f.input_tokens for f in features]
-    tensors = [input_ids, attention_mask, triples, input_tokens]
+    texts = [f.text for f in features]
+    tensors = [texts, input_ids, attention_mask, triples, input_tokens]
     return tensors

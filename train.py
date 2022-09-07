@@ -13,12 +13,12 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="glre",
+    parser.add_argument('--model_type', default="tdeer",
                         type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre"])
     parser.add_argument('--pretrain_path', type=str,
-                        default="./bertbaseuncased", help='定义预训练模型路径')
+                        default="./chineserobertawwmext", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/DocRED", help='定义数据集路径')
+                        default="data/data/manufacture", help='定义数据集路径')
     parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -126,7 +126,8 @@ def main():
         filename =os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
-        args.max_span_length = max_length
+        max_length = min(max_length,512)
+        args.max_length = max_length
         train_dataset = Spn4REDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
                                       batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
@@ -201,7 +202,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[0],
+                         gpus=[1],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

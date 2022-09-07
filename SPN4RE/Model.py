@@ -8,14 +8,15 @@ Contact :   779365135@qq.com
 License :   (C)Copyright 2017-2018, Liugroup-NLPR-CASIA
 Desc    :   for SPN4RE model
 '''
-from scipy.optimize import linear_sum_assignment
-from torch import nn
-import torch.nn as nn
+import os
 import torch
-from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
-import torch.nn.functional as F
-from SPN4RE.utils import generate_triple,formulate_gold
+import json
+import torch.nn as nn
 import pytorch_lightning as pl
+import torch.nn.functional as F
+from scipy.optimize import linear_sum_assignment
+from SPN4RE.utils import generate_triple,formulate_gold
+from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
 
 
 class DecoderLayer(nn.Module):
@@ -459,7 +460,8 @@ class Spn4REPytochLighting(pl.LightningModule):
         self.model = SetPred4RE(args,self.num_classes)
         self.criterion = SetCriterion(self.num_classes,  loss_weight=self.get_loss_weight(
             args.loss_weight), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
-    
+        self.epoch = 0
+
     def get_loss_weight(self,loss_weight):
         return {"relation": loss_weight[0], "head_entity": loss_weight[1], "tail_entity": loss_weight[2]}
 
@@ -477,65 +479,76 @@ class Spn4REPytochLighting(pl.LightningModule):
         gold = formulate_gold(targets, info)
         outputs = self.model(input_ids, attention_mask)
         prediction = generate_triple(outputs, info, self.args, self.num_classes)
-        return gold,prediction
+        sent_idx = info['sent_idx']
+        texts = info['texts']
+        text_idx = dict(zip(*(sent_idx,texts)))
+        return gold,prediction,text_idx
     
     def validation_epoch_end(self, outputs):
         golds = {}
         preds = {}
-        for gold,pred in outputs:
+        text_idxs = {}
+        for gold,pred,text_idx in outputs:
             golds.update(gold)
             preds.update(pred)
-        result = self.metric(preds,golds)
-        self.log("f1",result["f1"], prog_bar=True)
-        self.log("acc",result["prec"], prog_bar=True)
-        self.log("recall",result["recall"], prog_bar=True)
+            text_idxs.update(text_idx)
 
-    def metric(self,pred, gold):
-        assert pred.keys() == gold.keys()
+        orders = ['relation', 'subject', 'object']
+
+        os.makedirs(os.path.join(self.args.output_path,
+                    self.args.model_type), exist_ok=True)
+        writer = open(os.path.join(self.args.output_path, self.args.model_type,
+                      'val_output_{}.json'.format(self.epoch)), 'w')
+
+        assert preds.keys() == golds.keys()
         gold_num = 0 # gold数量
-        rel_num = 0 # 一个样本中所有关系预测正确的数量
-        ent_num = 0 # 一个样本中所有实体预测正确的数量
         right_num = 0 # 一个样本中所有都正确的数量
         pred_num = 0 # 预测数量
-        for sent_idx in pred:
-            gold_num += len(gold[sent_idx])
-            pred_correct_num = 0
+        error_result = []
+        for sent_idx in preds:
+            sent_gold = golds[sent_idx]
+            # 取gold relation，gold subject，gold object
+            sent_gold = [(line[0],line[-2],line[-1]) for line in sent_gold]
+            gold_num += len(sent_gold)
             # 一个样本中所有关系，subject，object的组合
-            prediction = list(set([(ele.pred_rel, ele.head_start_index, ele.head_end_index, ele.tail_start_index, ele.tail_end_index) for ele in pred[sent_idx]]))
+            # prediction = list(set([(ele.pred_rel, ele.head_start_index, ele.head_end_index, ele.tail_start_index, ele.tail_end_index) for ele in pred[sent_idx]]))
+            prediction = list(set([(ele.pred_rel,ele.subject,ele.object) for ele in preds[sent_idx]]))
             pred_num += len(prediction)
-            for ele in prediction:
-                if ele in gold[sent_idx]:
-                    right_num += 1
-                    pred_correct_num += 1
-                if ele[0] in [e[0] for e in gold[sent_idx]]:
-                    rel_num += 1
-                if ele[1:] in [e[1:] for e in gold[sent_idx]]:
-                    ent_num += 1
-                    
+            right_num += len(set(prediction) & set(sent_gold))
+
+            new = [dict(zip(orders, triple)) for triple in set(prediction) - set(sent_gold)]
+            lack = [dict(zip(orders, triple)) for triple in set(sent_gold) - set(prediction)]
+            if len(new) or len(lack):
+                result = {'text': text_idxs[sent_idx],
+                        'golds': [dict(zip(orders, triple)) for triple in sent_gold],
+                        'preds': [dict(zip(orders, triple)) for triple in prediction],
+                        'new': new,
+                        'lack': lack
+                        }
+                error_result.append(result)
+        writer.write(json.dumps(error_result,ensure_ascii=False) + '\n')
+        writer.close()
+
         if pred_num == 0:
             precision = -1
-            r_p = -1
-            e_p = -1
         else:
             precision = (right_num + 0.0) / pred_num
-            e_p = (ent_num + 0.0) / pred_num
-            r_p = (rel_num + 0.0) / pred_num
 
         if gold_num == 0:
             recall = -1
-            r_r = -1
-            e_r = -1
         else:
             recall = (right_num + 0.0) / gold_num
-            e_r = ent_num / gold_num
-            r_r = rel_num / gold_num
 
         if (precision == -1) or (recall == -1) or (precision + recall) <= 0.:
             f_measure = -1
         else:
             f_measure = 2 * precision * recall / (precision + recall)
 
-        return {"prec": precision, "recall": recall, "f1": f_measure}
+        self.log("f1",f_measure, prog_bar=True)
+        self.log("acc",precision, prog_bar=True)
+        self.log("recall",recall, prog_bar=True)
+        self.epoch += 1
+
 
     def configure_optimizers(self):
         """[配置优化参数]

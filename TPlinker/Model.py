@@ -1,19 +1,11 @@
 import torch
-import torch.nn as nn
-from transformers.models.bert.modeling_bert import BertPreTrainedModel, BertModel
-import numpy as np
-from collections import defaultdict
-import json
-from transformers import DataCollatorWithPadding
-import argparse
-import pytorch_lightning as pl
-import copy
-from tqdm import tqdm
 import math
+import torch.nn as nn
+import pytorch_lightning as pl
 from torch.nn import Parameter
-import re
-import os
-from TPlinker.utils import HandshakingTaggingScheme, MetricsCalculator
+from TPlinker.utils import MetricsCalculator
+from transformers.models.bert.modeling_bert import BertModel
+
 
 
 class LayerNorm(nn.Module):
