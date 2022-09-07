@@ -25,7 +25,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 class RGCN_Layer(nn.Module):
     """ A Relation GCN module operated on documents graphs. """
 
-    def __init__(self, in_dim, mem_dim, num_layers,gcn_in_drop,gcn_out_drop, relation_cnt=5):
+    def __init__(self, in_dim, mem_dim, num_layers, gcn_in_drop, gcn_out_drop, relation_cnt=5):
         """
         Args:
             in_dim (_type_): GCN layer 输入的维度
@@ -106,13 +106,13 @@ class RGCN_Layer(nn.Module):
             gAxWs = torch.stack(gAxWs, dim=1)
             # self loop
             gAxWs = F.relu(
-                (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)  
+                (torch.sum(gAxWs, 1) + self.W_0[l](gcn_inputs)) / denomss)
             gcn_inputs = self.gcn_drop(gAxWs) if l < self.layers - 1 else gAxWs
         return gcn_inputs, maskss
 
 
 class Local_rep_layer(nn.Module):
-    def __init__(self,query,rgcn_hidden_dim,attn_head_num,attn_drop):
+    def __init__(self, query, rgcn_hidden_dim, attn_head_num, attn_drop):
         super(Local_rep_layer, self).__init__()
         self.query = query
         input_dim = rgcn_hidden_dim
@@ -137,7 +137,7 @@ class Local_rep_layer(nn.Module):
         entities, mentions, sentences = nodes  # entity_size * dim
         # [batch_size ,entity_size ,hidden_size]
         entities = split_n_pad(entities, section[:, 0])
-        if self.query == 'global': # 是否使用RGCN提取的全局node节点特征
+        if self.query == 'global':  # 是否使用RGCN提取的全局node节点特征
             entities = global_nodes
         # 单个batch中最大的entity_size
         entity_size = section[:, 0].max()
@@ -156,12 +156,13 @@ class Local_rep_layer(nn.Module):
         r_idx, c_idx = torch.meshgrid(torch.arange(entity_size).to(self.device),
                                       torch.arange(entity_size).to(self.device))
         # 只取实体节点的表征 [batch_size,entity_size,entity_size,hidden_size]
-        query_1 = entities[:, r_idx] # 实体对的tail实体
-        query_2 = entities[:, c_idx] # 实体对的head实体
+        query_1 = entities[:, r_idx]  # 实体对的tail实体
+        query_2 = entities[:, c_idx]  # 实体对的head实体
         # [batch_size,max_mention_num,7]
         info = split_n_pad(info, section[:, 1], pad=-1)
         # torch.broadcast_tensors 将x按照y的方向进行扩充，y按照x的方向进行扩充,最终生成的两个矩阵都有相同的维度
-        m_ids, e_ids = torch.broadcast_tensors(info[:, :, 0].unsqueeze(1), eid_ranges.unsqueeze(-1))
+        m_ids, e_ids = torch.broadcast_tensors(
+            info[:, :, 0].unsqueeze(1), eid_ranges.unsqueeze(-1))
         # [batch_size , entity_size , mention_size]
         index_m = torch.ne(m_ids, e_ids).to(self.device)
         """
@@ -216,7 +217,7 @@ class GLREModule(nn.Module):
         rgcn_input_dim = args.lstm_dim + args.type_dim
 
         self.rgcn_layer = RGCN_Layer(
-            rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers,args.gcn_in_drop,args.gcn_out_drop, relation_cnt=5)
+            rgcn_input_dim, args.rgcn_hidden_dim, args.rgcn_num_layers, args.gcn_in_drop, args.gcn_out_drop, relation_cnt=5)
         self.encoder = EncoderLSTM(input_size=hidden_size,
                                    num_units=args.lstm_dim,
                                    nlayers=args.bilstm_layers,
@@ -228,7 +229,8 @@ class GLREModule(nn.Module):
         else:
             pretrain_hidden_size = hidden_size
 
-        self.pretrain_lm_linear_re = nn.Linear(pretrain_hidden_size, args.lstm_dim)
+        self.pretrain_lm_linear_re = nn.Linear(
+            pretrain_hidden_size, args.lstm_dim)
         self.finaldist = args.finaldist
 
         if self.finaldist:
@@ -244,7 +246,8 @@ class GLREModule(nn.Module):
         else:
             input_dim = args.rgcn_hidden_dim * 2
 
-        self.local_rep_layer = Local_rep_layer(args.query,args.rgcn_hidden_dim,args.att_head_num,args.att_drop)
+        self.local_rep_layer = Local_rep_layer(
+            args.query, args.rgcn_hidden_dim, args.att_head_num, args.att_drop)
         input_dim += args.lstm_dim * 2
 
         if self.finaldist:
@@ -452,8 +455,10 @@ class GLREModule(nn.Module):
         # [batch_size,max_node_number,max_node_number]
         sel = torch.zeros(nodes_info.size(0), nodes_info.size(
             1), nodes_info.size(1)).to(nodes_info.device)
-        a_ = nodes_info[..., 0][:, idx[0]] # [batch_size,max_node_number,max_node_number]
-        b_ = nodes_info[..., 0][:, idx[1]] # [batch_size,max_node_number,max_node_number]
+        # [batch_size,max_node_number,max_node_number]
+        a_ = nodes_info[..., 0][:, idx[0]]
+        # [batch_size,max_node_number,max_node_number]
+        b_ = nodes_info[..., 0][:, idx[1]]
         # 针对不同数据
         if dataset == 'cdr':
             c_ = nodes_info[..., 1][:, idx[0]]
@@ -533,7 +538,8 @@ class GLREModule(nn.Module):
         entitys_pair_rep_h, entitys_pair_rep_t = self.local_rep_layer(
             entities, section, init_nodes, nodes)
         # 将局部表征与全局表征concatenate
-        relation_rep_h = torch.cat((relation_rep_h, entitys_pair_rep_h), dim=-1)
+        relation_rep_h = torch.cat(
+            (relation_rep_h, entitys_pair_rep_h), dim=-1)
         relation_rep_t = torch.cat(
             (relation_rep_t, entitys_pair_rep_t), dim=-1)
 
@@ -562,7 +568,7 @@ class GLREModule(nn.Module):
         # torch.meshgrid(x,y)是按输入x作为y轴信息，输入y作为x轴信息.
         r_idx, c_idx = torch.meshgrid(torch.arange(nodes_info.size(1)).to(device),
                                       torch.arange(nodes_info.size(1)).to(device))
-        
+
         select, _ = self.select_pairs(nodes_info, (r_idx, c_idx), self.dataset)
         graph_select = graph_select[select]
         if self.mlp_layer > -1:
@@ -604,10 +610,13 @@ class GLREModuelPytochLighting(pl.LightningModule):
                            t.view(-1).long().to(self.device))  # ground truth
         pred = torch.where(mask_p, label_num,
                            y.view(-1).long().to(self.device))  # output of NN
-        
-        tp_mask = torch.where(torch.eq(pred, true), true, label_num) # True Positive
-        fp_mask = torch.where(torch.ne(pred, true), pred, label_num) # False Positive
-        fn_mask = torch.where(torch.ne(pred, true), true, label_num) # False Negative
+
+        tp_mask = torch.where(torch.eq(pred, true), true,
+                              label_num)  # True Positive
+        fp_mask = torch.where(torch.ne(pred, true), pred,
+                              label_num)  # False Positive
+        fn_mask = torch.where(torch.ne(pred, true), true,
+                              label_num)  # False Negative
 
         tp = torch.bincount(
             tp_mask, minlength=self.rel_size + 1)[:self.rel_size]
@@ -684,7 +693,8 @@ class GLREModuelPytochLighting(pl.LightningModule):
 
         pred_pairs = pred_pairs.data.cpu().numpy()
         multi_truths = multi_truths.data.cpu().numpy()
-        output['true'] = multi_truths.sum() - multi_truths[:,self.ignore_label].sum()
+        output['true'] = multi_truths.sum() - multi_truths[:,
+                                                           self.ignore_label].sum()
         return output
 
     def validation_epoch_end(self, outputs) -> None:
@@ -698,7 +708,8 @@ class GLREModuelPytochLighting(pl.LightningModule):
             output['tn'] += out['tn']
             output['preds'] += out['preds']
             output['true'] += out['true']
-        scores = self.prf1(output['tp'], output['fp'], output['fn'], output['tn'])
+        scores = self.prf1(output['tp'], output['fp'],
+                           output['fn'], output['tn'])
         self.log("tot", float(scores['total']), prog_bar=True)
         self.log("cor", float(scores['tp']), prog_bar=True)
         self.log("pred", float(scores['pred']), prog_bar=True)
@@ -706,16 +717,17 @@ class GLREModuelPytochLighting(pl.LightningModule):
         self.log("recall", float(scores['recall']), prog_bar=True)
         self.log("prec", float(scores['precsion']), prog_bar=True)
         self.log("acc", float(scores['acc']), prog_bar=True)
-        
-    def fbeta_score(self,precision, recall, beta=1.0):
+
+    def fbeta_score(self, precision, recall, beta=1.0):
         beta_square = beta * beta
         if (precision != 0.0) and (recall != 0.0):
-            res = ((1 + beta_square) * precision * recall / (beta_square * precision + recall))
+            res = ((1 + beta_square) * precision * recall /
+                   (beta_square * precision + recall))
         else:
             res = 0.0
         return res
 
-    def prf1(self,tp_, fp_, fn_, tn_):
+    def prf1(self, tp_, fp_, fn_, tn_):
         tp_ = np.sum(tp_, axis=0)
         fp_ = np.sum(fp_, axis=0)
         fn_ = np.sum(fn_, axis=0)
@@ -730,7 +742,8 @@ class GLREModuelPytochLighting(pl.LightningModule):
         micro_r = (1.0 * atp) / (atp + afn) if (atp + afn != 0) else 0.0
         micro_f = self.fbeta_score(micro_p, micro_r)
 
-        acc = (atp + atn) / (atp + atn + afp + afn) if (atp + atn + afp + afn) else 0.0
+        acc = (atp + atn) / (atp + atn + afp +
+                             afn) if (atp + atn + afp + afn) else 0.0
         acc_NA = atn / (atn + afp) if (atn + afp) else 0.0
         acc_not_NA = atp / (atp + afn) if (atp + afn) else 0.0
         return {'acc': acc, 'NA_acc': acc_NA, 'not_NA_acc': acc_not_NA,

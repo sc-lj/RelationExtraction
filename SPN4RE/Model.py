@@ -27,7 +27,7 @@ class DecoderLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-    def forward(self,hidden_states,encoder_hidden_states,encoder_attention_mask):
+    def forward(self, hidden_states, encoder_hidden_states, encoder_attention_mask):
         """关系的解码器
         Args:
             hidden_states (_type_): 关系隐层,初始为关系的映射,后面都是上一层decoder输出, [batch_size,num_generated_triples,hidden_size]
@@ -145,7 +145,7 @@ class SetDecoder(nn.Module):
         head_start_logits = self.head_start_metric_3(torch.tanh(
             self.head_start_metric_1(hidden_states).unsqueeze(2) + self.head_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
-        
+
         # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
         # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         head_end_logits = self.head_end_metric_3(torch.tanh(
@@ -157,7 +157,7 @@ class SetDecoder(nn.Module):
         tail_start_logits = self.tail_start_metric_3(torch.tanh(
             self.tail_start_metric_1(hidden_states).unsqueeze(2) + self.tail_start_metric_2(
                 encoder_hidden_states).unsqueeze(1))).squeeze()
-        
+
         # [batch_size,num_generated_triples,1,hidden_size] + [batch_size,1,seq_len,hidden_size] = [batch_size,num_generated_triples,seq_len,hidden_size]
         # [batch_size,num_generated_triples,seq_len,hidden_size]->[batch_size,num_generated_triples,seq_len]
         tail_end_logits = self.tail_end_metric_3(torch.tanh(
@@ -241,7 +241,7 @@ class HungarianMatcher(nn.Module):
         # cost.split(num_gold_triples, -1) 按照num_gold_triples对cost按照-1维度进行切分。
         # linear_sum_assignment:假设有4个工人（workers）a,b,c,d，有三项任务（job）p,q,r，每个工人干每一项活的成本都不同，那么便可构造一个代价矩阵（cost matrix）,
         # 使用linear_sum_assignment 得到最佳分配下的行列索引值，
-        # cost = np.array([[4, 1, 3], [2, 0, 5], [3, 2, 2], [1, 1, 1]]) 
+        # cost = np.array([[4, 1, 3], [2, 0, 5], [3, 2, 2], [1, 1, 1]])
         # r, c = linear_sum_assignment(cost) => (array([1, 2, 3]), array([1, 2, 0]))
         # "最小成本："cost[r, c].sum()
         # 获取每个batch下，gold 标签在num_generated_triples中的索引
@@ -414,7 +414,7 @@ class SeqEncoder(nn.Module):
 
     def forward(self, input_ids, attention_mask):
         outputs = self.bert(input_ids, attention_mask=attention_mask, return_dict=None)
-        last_hidden_state, pooler_output  = outputs[0],outputs[1]
+        last_hidden_state, pooler_output = outputs[0], outputs[1]
         return last_hidden_state, pooler_output
 
 
@@ -452,30 +452,30 @@ class SetPred4RE(nn.Module):
 
 
 class Spn4REPytochLighting(pl.LightningModule):
-    def __init__(self,args) -> None:
+    def __init__(self, args) -> None:
         super().__init__()
         self.args = args
         self.save_hyperparameters(args)
         self.num_classes = args.relation_number
-        self.model = SetPred4RE(args,self.num_classes)
+        self.model = SetPred4RE(args, self.num_classes)
         self.criterion = SetCriterion(self.num_classes,  loss_weight=self.get_loss_weight(
             args.loss_weight), na_coef=args.na_rel_coef, losses=["entity", "relation"], matcher=args.matcher)
         self.epoch = 0
 
-    def get_loss_weight(self,loss_weight):
+    def get_loss_weight(self, loss_weight):
         return {"relation": loss_weight[0], "head_entity": loss_weight[1], "tail_entity": loss_weight[2]}
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
-    
-    def training_step(self, batches,batch_idx):
-        input_ids, attention_mask,targets,_ = batches
+
+    def training_step(self, batches, batch_idx):
+        input_ids, attention_mask, targets, _ = batches
         outputs = self.model(input_ids, attention_mask)
         loss = self.criterion(outputs, targets)
         return loss
 
-    def validation_step(self, batches,batch_idx):
-        input_ids, attention_mask,targets,info = batches
+    def validation_step(self, batches, batch_idx):
+        input_ids, attention_mask, targets, info = batches
         gold = formulate_gold(targets, info)
         outputs = self.model(input_ids, attention_mask)
         prediction = generate_triple(outputs, info, self.args, self.num_classes)
@@ -556,12 +556,13 @@ class Spn4REPytochLighting(pl.LightningModule):
         param_optimizer = list(self.named_parameters())
         no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
         optimizer_grouped_parameters = [
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8,'lr':2e-5},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0,'lr':2e-5},
-                {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.8,'lr':2e-4},
-                {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0,'lr':2e-4}
-                ]
-    
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.8, 'lr':2e-5},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' in n], 'weight_decay': 0.0, 'lr':2e-5},
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)
+                        and 'bert' not in n], 'weight_decay': 0.8, 'lr':2e-4},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay) and 'bert' not in n], 'weight_decay': 0.0, 'lr':2e-4}
+        ]
+
         # optimizer = torch.optim.AdamW(self.parameters(), lr=1e-5)
         optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
         # StepLR = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.99)
@@ -575,5 +576,3 @@ class Spn4REPytochLighting(pl.LightningModule):
         # StepLR = WarmupLR(optimizer,25000)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
-    
-

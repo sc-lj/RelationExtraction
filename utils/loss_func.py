@@ -14,6 +14,7 @@ import torch.nn.functional as F
 from torch.nn.modules.loss import _Loss
 import numpy as np
 
+
 def bce2d(pred, target, reduction='mean'):
     """[动态为每个batch的正例和负例添加权重]
 
@@ -34,10 +35,7 @@ def bce2d(pred, target, reduction='mean'):
     # alpha_neg = num_pos / num_total
     # weights = alpha_pos * pos + 1.5*alpha_neg * neg
     weights = pos*17 + neg*1.2
-    return F.binary_cross_entropy_with_logits(pred, target, weights, reduction = reduction)
-
-import torch
-import torch.nn as nn
+    return F.binary_cross_entropy_with_logits(pred, target, weights, reduction=reduction)
 
 
 class AsymmetricLoss(nn.Module):
@@ -146,6 +144,7 @@ class ASLSingleLabel(nn.Module):
     '''
     This loss is intended for single-label classification problems
     '''
+
     def __init__(self, gamma_pos=0, gamma_neg=4, eps: float = 0.1, reduction='mean'):
         super(ASLSingleLabel, self).__init__()
 
@@ -192,6 +191,7 @@ class ASLSingleLabel(nn.Module):
 class BCEFocalLoss(nn.Module):
     """[二分类的focal loss 损失函数]
     """
+
     def __init__(self, alpha=0.25, gamma=5, size_average=False):
         """[focal_loss损失函数, -α(1-yi)**γ *ce_loss(xi,yi)]
         Args:
@@ -201,11 +201,11 @@ class BCEFocalLoss(nn.Module):
             size_average (bool, optional): [损失计算方式,默认取均值]. Defaults to True.
         """
 
-        super(BCEFocalLoss,self).__init__()
+        super(BCEFocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
         self.size_average = size_average
-        self.epsilon = 1.e-6 #半精度浮点数，表示的最小数字
+        self.epsilon = 1.e-6  # 半精度浮点数，表示的最小数字
 
     def forward(self, preds, target):
         """[focal_loss损失计算]
@@ -216,20 +216,21 @@ class BCEFocalLoss(nn.Module):
         Returns:
             [type]: [description]
         """
-        
-        pt = torch.sigmoid(preds) # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)    
-        pt = torch.clamp(pt,self.epsilon,1-self.epsilon)    
-        loss = - self.alpha * (1 - pt) ** self.gamma * target * torch.log(pt) - (1 - self.alpha) * pt ** self.gamma * (1 - target) * torch.log(1 - pt)   
-        # if self.size_average:        
+
+        pt = torch.sigmoid(preds)  # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)
+        pt = torch.clamp(pt, self.epsilon, 1-self.epsilon)
+        loss = - self.alpha * (1 - pt) ** self.gamma * target * torch.log(pt) - (1 - self.alpha) * pt ** self.gamma * (1 - target) * torch.log(1 - pt)
+        # if self.size_average:
         #     loss = loss.mean()
-        # else:            
-        #     loss = loss.sum() 
+        # else:
+        #     loss = loss.sum()
         return loss
 
 
 class MLFocalLoss(nn.Module):
     """[多标签的focal loss 损失函数]
     """
+
     def __init__(self, alpha=0.25, gamma=2, size_average=True):
         """[focal_loss损失函数, -α(1-yi)**γ *ce_loss(xi,yi)]
         Args:
@@ -239,11 +240,11 @@ class MLFocalLoss(nn.Module):
             size_average (bool, optional): [损失计算方式,默认取均值]. Defaults to True.
         """
 
-        super(MLFocalLoss,self).__init__()
+        super(MLFocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
         self.size_average = size_average
-        self.epsilon = 1.e-9 #半精度浮点数，表示的最小数字
+        self.epsilon = 1.e-9  # 半精度浮点数，表示的最小数字
 
     def forward(self, preds, target):
         """[focal_loss损失计算]
@@ -254,23 +255,23 @@ class MLFocalLoss(nn.Module):
         Returns:
             [type]: [description]
         """
-        
-        pt = torch.sigmoid(preds) # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)  
+
+        pt = torch.sigmoid(preds)  # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)
         zeros = torch.zeros_like(pt, dtype=pt.dtype)
         pos_p_sub = torch.where(target > zeros, target - pt, zeros)
         neg_p_sub = torch.where(target > zeros, zeros, pt)
 
-        per_entry_cross_ent = - self.alpha * (pos_p_sub ** self.gamma) * torch.log(pt + self.epsilon) - (1-self.alpha) * (neg_p_sub ** self.gamma) * torch.log(1.0 - pt + self.epsilon)  
-        # per_entry_cross_ent = -torch.log(torch.clamp(pt,self.epsilon, 1.0)) - neg_p_sub * torch.log(torch.clamp(1.0 - pt, self.epsilon, 1.0))  
-        # per_entry_cross_ent = -(pos_p_sub ** self.gamma)*torch.log(pt) - (neg_p_sub**self.gamma) * torch.log(1.0 - pt)  
+        per_entry_cross_ent = - self.alpha * (pos_p_sub ** self.gamma) * torch.log(pt + self.epsilon) - \
+            (1-self.alpha) * (neg_p_sub ** self.gamma) * torch.log(1.0 - pt + self.epsilon)
+        # per_entry_cross_ent = -torch.log(torch.clamp(pt,self.epsilon, 1.0)) - neg_p_sub * torch.log(torch.clamp(1.0 - pt, self.epsilon, 1.0))
+        # per_entry_cross_ent = -(pos_p_sub ** self.gamma)*torch.log(pt) - (neg_p_sub**self.gamma) * torch.log(1.0 - pt)
 
-
-        if self.size_average:        
+        if self.size_average:
             loss = per_entry_cross_ent.mean()
-        else:            
+        else:
             loss = per_entry_cross_ent.sum()
         if torch.isinf(loss):
-            print(loss)   
+            print(loss)
         return loss
 
 
@@ -307,6 +308,7 @@ class MultiCrossentropy(nn.Module):
 class MultiCEFocalLoss(nn.Module):
     """[多类别 focal loss函数]
     """
+
     def __init__(self, num_classes, alpha=0.25, gamma=2, size_average=True):
         """[focal_loss损失函数, -α(1-yi)**γ *ce_loss(xi,yi)]
 
@@ -317,16 +319,16 @@ class MultiCEFocalLoss(nn.Module):
             size_average (bool, optional): [损失计算方式,默认取均值]. Defaults to True.
         """
 
-        super(MultiCEFocalLoss,self).__init__()
+        super(MultiCEFocalLoss, self).__init__()
         self.size_average = size_average
-        if isinstance(alpha,list):
-            assert len(alpha)==num_classes   # α可以以list方式输入,size:[num_classes] 用于对不同类别精细地赋予权重
+        if isinstance(alpha, list):
+            assert len(alpha) == num_classes   # α可以以list方式输入,size:[num_classes] 用于对不同类别精细地赋予权重
             self.alpha = torch.Tensor(alpha)
         else:
-            assert alpha<1   #如果α为一个常数,则降低第一类的影响,在目标检测中为第一类
+            assert alpha < 1  # 如果α为一个常数,则降低第一类的影响,在目标检测中为第一类
             self.alpha = torch.zeros(num_classes)
             self.alpha[0] += alpha
-            self.alpha[1:] += (1-alpha) # α 最终为 [ α, 1-α, 1-α, 1-α, 1-α, ...] size:[num_classes]
+            self.alpha[1:] += (1-alpha)  # α 最终为 [ α, 1-α, 1-α, 1-α, 1-α, ...] size:[num_classes]
         self.gamma = gamma
         self.elipson = 1e-20
 
@@ -339,36 +341,36 @@ class MultiCEFocalLoss(nn.Module):
         Returns:
             [type]: [description]
         """
-        # assert preds.dim()==2 and labels.dim()==1  
-        # preds = preds.transpose(-1, -2)     
-        # preds = preds.view(-1,preds.size(-1))        
-        alpha = self.alpha.to(preds.device)        
-        preds_softmax = F.softmax(preds, dim=1) # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)        
+        # assert preds.dim()==2 and labels.dim()==1
+        # preds = preds.transpose(-1, -2)
+        # preds = preds.view(-1,preds.size(-1))
+        alpha = self.alpha.to(preds.device)
+        preds_softmax = F.softmax(preds, dim=1)  # 这里并没有直接使用log_softmax, 因为后面会用到softmax的结果(当然你也可以使用log_softmax,然后进行exp操作)
         preds_logsoft = torch.log((preds_softmax-self.elipson).abs())
-        # preds_softmax = preds_softmax.gather(1,labels.view(-1,1))   # 这部分实现nll_loss ( crossempty = log_softmax + nll )        
-        # preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))    
+        # preds_softmax = preds_softmax.gather(1,labels.view(-1,1))   # 这部分实现nll_loss ( crossempty = log_softmax + nll )
+        # preds_logsoft = preds_logsoft.gather(1,labels.view(-1,1))
 
-        preds_softmax = preds_softmax.gather(1,labels.unsqueeze(1)).squeeze(1)   # 这部分实现nll_loss ( crossempty = log_softmax + nll )        
-        preds_logsoft = preds_logsoft.gather(1,labels.unsqueeze(1)).squeeze(1)  
+        preds_softmax = preds_softmax.gather(1, labels.unsqueeze(1)).squeeze(1)   # 这部分实现nll_loss ( crossempty = log_softmax + nll )
+        preds_logsoft = preds_logsoft.gather(1, labels.unsqueeze(1)).squeeze(1)
 
-        alpha = alpha.gather(0,labels.view(-1)).reshape(labels.shape)   
+        alpha = alpha.gather(0, labels.view(-1)).reshape(labels.shape)
         loss = -torch.mul(torch.pow((1-preds_softmax), self.gamma), preds_logsoft)  # torch.pow((1-preds_softmax), self.gamma) 为focal loss中 (1-pt)**γ
-        loss = torch.mul(alpha, loss)        
-        # if self.size_average:        
-        #     loss = loss.mean()        
-        # else:            
-        #     loss = loss.sum()        
+        loss = torch.mul(alpha, loss)
+        # if self.size_average:
+        #     loss = loss.mean()
+        # else:
+        #     loss = loss.sum()
         return loss
 
 
 class FocalLoss(nn.Module):
-    def __init__(self, gamma = 2, alpha = 1, size_average = True):
+    def __init__(self, gamma=2, alpha=1, size_average=True):
         super(FocalLoss, self).__init__()
         self.gamma = gamma
         self.alpha = alpha
         self.size_average = size_average
         self.elipson = 1e-20
-    
+
     def forward(self, logits, labels):
         """
         cal culates loss
@@ -391,15 +393,15 @@ class FocalLoss(nn.Module):
 
         # transpose labels into labels onehot
         new_label = labels.unsqueeze(1)
-        label_onehot = torch.zeros([batch_size, labels_length, seq_length],device=logits.device).scatter_(1, new_label, 1)
+        label_onehot = torch.zeros([batch_size, labels_length, seq_length], device=logits.device).scatter_(1, new_label, 1)
 
         # calculate log
         # log_p = F.log_softmax(logits,dim=1)
         # pt = label_onehot * log_p
-        p_softmax = F.softmax(logits,dim=1)
+        p_softmax = F.softmax(logits, dim=1)
         pt = (label_onehot * p_softmax).sum(1)
-        log_p = torch.log((pt- self.elipson).abs())
-        
+        log_p = torch.log((pt - self.elipson).abs())
+
         sub_pt = 1 - pt
         fl = -self.alpha * (sub_pt)**self.gamma * log_p
         if self.size_average:
@@ -411,6 +413,7 @@ class FocalLoss(nn.Module):
 class MultiCEBiTemperedLogisticLoss(_Loss):
     """[多类别的带噪声数据的神经网络双温逻辑损失]
     """
+
     def __init__(self, reduction='mean', t1=1, t2=1, label_smoothing=0.0, num_iters=5):
         super().__init__(reduction=reduction)
         self.t1 = t1
@@ -489,7 +492,7 @@ class MultiCEBiTemperedLogisticLoss(_Loss):
         A probabilities tensor.
         """
         if t == 1.0:
-            normalization_constants = torch.log(torch.sum(torch.exp(inputs), dim=-1,keepdim=True))
+            normalization_constants = torch.log(torch.sum(torch.exp(inputs), dim=-1, keepdim=True))
         else:
             normalization_constants = cls.compute_normalization(inputs, t, num_iters)
 
@@ -501,7 +504,7 @@ class MultiCEBiTemperedLogisticLoss(_Loss):
         n_classes = inputs.size(-1)
         with torch.no_grad():
             # targets = torch.empty_like(inputs,device=targets.device).fill_(smoothing / (n_classes - 1)).scatter_(-1, targets.data.unsqueeze(-1), 1. - smoothing)
-            targets = torch.where(target==1,1. - smoothing,smoothing / (n_classes - 1))
+            targets = torch.where(target == 1, 1. - smoothing, smoothing / (n_classes - 1))
 
         return targets
 
@@ -535,6 +538,7 @@ class MultiCEBiTemperedLogisticLoss(_Loss):
             loss = loss.mean()
 
         return loss
+
 
 class GlobalCrossEntropy(nn.Module):
     def __init__(self, interval=0.):
@@ -586,13 +590,14 @@ class MutualInforLoss(nn.Module):
     Args:
         nn (_type_): _description_
     """
-    def __init__(self,prior,tau=1.0) -> None:
+
+    def __init__(self, prior, tau=1.0) -> None:
         super().__init__()
         # 自己定义好prior,shape为[num_classes]
-        self.prior=torch.from_numpy(np.log(prior+1e-8))
+        self.prior = torch.from_numpy(np.log(prior+1e-8))
         self.tau = tau
 
-    def forward(self,inputs,targets):
+    def forward(self, inputs, targets):
         """多标签损失函数
             不能先用sigmoid函数
         Args:
@@ -600,9 +605,10 @@ class MutualInforLoss(nn.Module):
             targets (_type_): _description_
         """
         batch_size = inputs.shape[0]
-        prior = self.prior.repeat(batch_size,1)
+        prior = self.prior.repeat(batch_size, 1)
         inputs = inputs+self.tau*prior
-        return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction= 'mean')
+        return F.multilabel_soft_margin_loss(inputs, targets, weight=None, reduction='mean')
+
 
 
 def poly1_cross_entropy_torch(logits, labels, class_number=3, epsilon=1.0):
@@ -657,7 +663,7 @@ def poly1_focal_loss_torch(logits, labels, alpha=0.25, gamma=2, num_classes=3, e
     Returns:
         _type_: _description_
     """
-    focal_loss_func = MultiCEFocalLoss(num_classes,alpha, gamma)
+    focal_loss_func = MultiCEFocalLoss(num_classes, alpha, gamma)
     focal_loss = focal_loss_func(logits, labels)
 
     p = F.sigmoid(logits)
@@ -671,6 +677,7 @@ def poly1_focal_loss_torch(logits, labels, alpha=0.25, gamma=2, num_classes=3, e
 class GHM(nn.Module):
     """对损失进行正则化
     """
+
     def __init__(self) -> None:
         super().__init__()
         self.last_weights = None  # for exponential moving averaging
@@ -760,28 +767,25 @@ class GHM_Loss(nn.Module):
         beta = N / gd
         return self._custom_loss(x, target, beta[bin_idx])
 
- 
+
 class GHMC_Loss(GHM_Loss):
     """与Focal Loss一样,GHM也是解决样本不平衡的利器
     """
+
     def __init__(self, bins, alpha):
         super(GHMC_Loss, self).__init__(bins, alpha)
 
     def _custom_loss(self, x, target, weight):
-        return torch.sum((nn.NLLLoss(reduce=False)(torch.log(x),target)).mul(weight.to(target.device).detach()))/torch.sum(weight.to(device).detach())
+        return torch.sum((nn.NLLLoss(reduce=False)(torch.log(x), target)).mul(weight.to(target.device).detach()))/torch.sum(weight.to(device).detach())
 
     def _custom_loss_grad(self, x, target):
-        x=x.cpu().detach()
-        target=target.cpu()
-        return torch.tensor([x[i,target[i]] for i in range(target.shape[0])])-target
-
-
+        x = x.cpu().detach()
+        target = target.cpu()
+        return torch.tensor([x[i, target[i]] for i in range(target.shape[0])])-target
 
 
 if __name__ == "__main__":
     focal_loss = MLFocalLoss()
-    preds = torch.randn((100,10))
-    target = torch.empty((100,10),dtype=torch.long).random_(2)
-    print(focal_loss(preds,target))
-
-
+    preds = torch.randn((100, 10))
+    target = torch.empty((100, 10), dtype=torch.long).random_(2)
+    print(focal_loss(preds, target))

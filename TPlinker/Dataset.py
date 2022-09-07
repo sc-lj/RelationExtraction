@@ -1,4 +1,4 @@
-import os   
+import os
 import json
 import copy
 from tqdm import tqdm
@@ -7,6 +7,7 @@ from transformers.models.bert.modeling_bert import BertSelfAttention
 from torch.utils.data import DataLoader, Dataset
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from TPlinker.utils import HandshakingTaggingScheme, MetricsCalculator, DataMaker4Bert
+
 
 class TPlinkerDataset(Dataset):
     def __init__(self, args, data_maker: DataMaker4Bert, tokenizer, is_training=False):
@@ -128,4 +129,3 @@ class TPlinkerDataset(Dataset):
 
     def __getitem__(self, index):
         return self.datas[index]
-

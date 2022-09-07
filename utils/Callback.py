@@ -2,13 +2,14 @@ from copy import deepcopy
 import pytorch_lightning as pl
 import torch
 from overrides import overrides
-from pytorch_lightning.utilities import rank_zero_only,rank_zero_warn
+from pytorch_lightning.utilities import rank_zero_only, rank_zero_warn
 import itertools
 from collections import defaultdict
-from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple, Type,Union
+from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple, Type, Union
 from pytorch_lightning.utilities.distributed import rank_zero_deprecation
 from pytorch_lightning.utilities.exceptions import MisconfigurationException
 from torch.optim.optimizer import Optimizer
+
 
 class EMACallBack(pl.Callback):
     """Implements EMA (exponential moving average) to any kind of model.
@@ -29,6 +30,7 @@ class EMACallBack(pl.Callback):
           resource. In addition, we want to avoid duplicated operations in ranks != 0 to reduce jitter and improve
           performance.
     """
+
     def __init__(self, decay: float = 0.9999, ema_device: Optional[Union[torch.device, str]] = None, pin_memory=True):
         super().__init__()
         self.decay = decay
@@ -42,7 +44,7 @@ class EMACallBack(pl.Callback):
     def get_state_dict(pl_module: pl.LightningModule):
         """Returns state dictionary from pl_module. Override if you want filter some parameters and/or buffers out.
         For example, in pl_module has metrics, you don't want to return their parameters.
-        
+
         code:
             # Only consider modules that can be seen by optimizers. Lightning modules can have others nn.Module attached
             # like losses, metrics, etc.
@@ -50,7 +52,7 @@ class EMACallBack(pl.Callback):
             return dict(filter(lambda i: i[0].startswith(patterns), pl_module.state_dict().items()))
         """
         return pl_module.state_dict()
-        
+
     @overrides
     def on_train_start(self, trainer: "pl.Trainer", pl_module: pl.LightningModule) -> None:
         # Only keep track of EMA weights in rank zero.
@@ -129,10 +131,11 @@ class FGM():
     def restore(self, emb_name='word_embeddings'):
         # emb_name这个参数要换成你模型中embedding的参数名
         for name, param in self.model.named_parameters():
-            if param.requires_grad and emb_name in name: 
+            if param.requires_grad and emb_name in name:
                 assert name in self.backup
                 param.data = self.backup[name]
         self.backup = {}
+
 
 class LearningRateMonitor(pl.Callback):
     r"""
@@ -450,5 +453,3 @@ class LearningRateMonitor(pl.Callback):
             " the names of all the optimizers, even those without a scheduler."
         )
         return self._lr_sch_names
-
-

@@ -1,0 +1,16 @@
+#
+max_pair_length: 64
+#
+alpha: 1.0
+#
+use_typemarker: false
+#
+use_ner_results: false
+#
+eval_unidirect: false
+#
+att_right: false
+#
+att_left: false
+#
+no_sym: false
