@@ -1,16 +1,16 @@
-#
+# 每次输入的pair长度
 max_pair_length: 64
-#
+# 交叉损失的权重
 alpha: 1.0
-#
+# 使用使用实体类型marker
 use_typemarker: false
-#
+# 使用使用ner预测的结果
 use_ner_results: false
-#
+# 
 eval_unidirect: false
-#
+# 对attention_mask 进行上三角mask
 att_right: false
-#
+# 对attention_mask 进行下三角mask
 att_left: false
 #
 no_sym: false

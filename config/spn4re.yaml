@@ -6,6 +6,7 @@ loss_weight:
 - 2
 # 无关关系的权重系数
 na_rel_coef: 1
+# 在统计组合最小成本时，成本的计算方式
 matcher: avg # ['avg', 'min']
 # decoder 的层数
 num_decoder_layers: 3
