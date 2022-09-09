@@ -104,7 +104,7 @@ class TDEERDataset(Dataset):
             pos_datas = []
             neg_datas = []
             text = data['text']
-            text_tokened = self.tokenizer(text,max_length=512,truncation=True, return_offsets_mapping=True)
+            text_tokened = self.tokenizer(text, max_length=512, truncation=True, return_offsets_mapping=True)
             input_ids = text_tokened['input_ids']
             attention_masks = text_tokened['attention_mask']
             # 将[cls]和[sep]mask掉

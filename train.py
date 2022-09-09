@@ -6,7 +6,7 @@ from pytorch_lightning import Trainer
 from utils.Callback import EMACallBack
 from torch.utils.data import DataLoader
 from pytorch_lightning.plugins import DDPPlugin
-from utils.utils import statistics_text_length,update_arguments
+from utils.utils import statistics_text_length, update_arguments
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
@@ -14,7 +14,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
     parser.add_argument('--model_type', default="glre",
-                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre","plmarker"])
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel", "glre", "plmarker"])
     parser.add_argument('--pretrain_path', type=str,
                         default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
@@ -27,22 +27,22 @@ def parser_args():
                         help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract",
                         type=str, help='将每轮的验证结果保存的路径')
-    parser.add_argument('--float16', default=False,type=bool, help='是否采用浮点16进行半精度计算')
+    parser.add_argument('--float16', default=False, type=bool, help='是否采用浮点16进行半精度计算')
 
     # 不同学习率scheduler的参数
     parser.add_argument('--decay_rate', default=0.999, type=float,
                         help='StepLR scheduler 相关参数')
-    parser.add_argument('--decay_steps', default=100,type=int, help='StepLR scheduler 相关参数')
+    parser.add_argument('--decay_steps', default=100, type=int, help='StepLR scheduler 相关参数')
     parser.add_argument('--T_mult', default=1.0, type=float,
                         help='CosineAnnealingWarmRestarts scheduler 相关参数')
-    parser.add_argument('--rewarm_epoch_num', default=2,type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
+    parser.add_argument('--rewarm_epoch_num', default=2, type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
 
     args = parser.parse_args()
     # 根据超参数文件更新参数
-    config_file = os.path.join("config","{}.yaml".format(args.model_type))
-    with open(config_file,'r') as f:
-        config = yaml.load(f,Loader=yaml.Loader)
-    args = update_arguments(args,config)
+    config_file = os.path.join("config", "{}.yaml".format(args.model_type))
+    with open(config_file, 'r') as f:
+        config = yaml.load(f, Loader=yaml.Loader)
+    args = update_arguments(args, config)
 
     return args
 
@@ -100,7 +100,7 @@ def main():
     elif args.model_type == "prgc":
         from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
-        filename =os.path.join(args.data_dir, "train_triples.json")
+        filename = os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_seq_len = max_length
@@ -119,10 +119,10 @@ def main():
     elif args.model_type == "spn4re":
         from SPN4RE import Spn4REPytochLighting, Spn4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
-        filename =os.path.join(args.data_dir, "train_triples.json")
+        filename = os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
-        max_length = min(max_length,512)
+        max_length = min(max_length, 512)
         args.max_length = max_length
         train_dataset = Spn4REDataset(args, is_training=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
@@ -158,16 +158,16 @@ def main():
         relation_number = train_dataset.n_rel
         label2ignore = train_dataset.label2ignore
 
-        def train_collate_fn(x): return collate_fn(x, label2ignore,args.NA_NUM, istrain=True)
+        def train_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM, istrain=True)
         train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
                                       batch_size=args.batch_size, shuffle=True)
 
         val_dataset = GLREDataset(args, is_training=False)
 
-        def val_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM,istrain=False)
+        def val_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM, istrain=False)
         val_dataloader = DataLoader(
             val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
-        
+
         args.label2ignore = label2ignore
         args.rel_size = relation_number
         args.steps = len(train_dataset)
@@ -177,7 +177,7 @@ def main():
     elif args.model_type == "plmarker":
         from PLMarker import PLMakerPytochLighting, PLMarkerDataset, collate_fn
         train_dataset = PLMarkerDataset(args, is_training=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,batch_size=args.batch_size, shuffle=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=True)
 
         val_dataset = PLMarkerDataset(args, is_training=False)
         val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
@@ -223,7 +223,7 @@ def main():
                          callbacks=[checkpoint_callback,
                                     early_stopping_callback],
                          accumulate_grad_batches=1,  # 累计梯度计算
-                         precision=16 if args.float16 else 32, # 半精度训练
+                         precision=16 if args.float16 else 32,  # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
                          progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
                          # O0：纯FP32训练,

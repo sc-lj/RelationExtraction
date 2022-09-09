@@ -19,46 +19,6 @@ class PLMarkerDataset(Dataset):
         self.no_sym = args.no_sym
         self.args = args
 
-<<<<<<< HEAD
-        if args.data_dir.find('ace05') != -1:
-            self.ner_label_list = ['NIL', 'FAC', 'WEA', 'LOC', 'VEH', 'GPE', 'ORG', 'PER']
-
-            if args.no_sym:
-                label_list = ['PER-SOC', 'ART', 'ORG-AFF', 'GEN-AFF', 'PHYS', 'PART-WHOLE']
-                self.sym_labels = ['NIL']
-                self.label_list = self.sym_labels + label_list
-            else:
-                label_list = ['ART', 'ORG-AFF', 'GEN-AFF', 'PHYS',  'PART-WHOLE']
-                self.sym_labels = ['NIL', 'PER-SOC']
-                self.label_list = self.sym_labels + label_list
-
-        elif args.data_dir.find('ace04') != -1:
-            self.ner_label_list = ['NIL', 'FAC', 'WEA', 'LOC', 'VEH', 'GPE', 'ORG', 'PER']
-
-            if args.no_sym:
-                label_list = ['PER-SOC', 'OTHER-AFF', 'ART', 'GPE-AFF', 'EMP-ORG', 'PHYS']
-                self.sym_labels = ['NIL']
-                self.label_list = self.sym_labels + label_list
-            else:
-                label_list = ['OTHER-AFF', 'ART', 'GPE-AFF', 'EMP-ORG', 'PHYS']
-                self.sym_labels = ['NIL', 'PER-SOC']
-                self.label_list = self.sym_labels + label_list
-
-        elif args.data_dir.find('scierc') != -1:
-            self.ner_label_list = [
-                'NIL', 'Method', 'OtherScientificTerm', 'Task', 'Generic', 'Material', 'Metric']
-
-            if args.no_sym:
-                label_list = ['CONJUNCTION', 'COMPARE', 'PART-OF',
-                              'USED-FOR', 'FEATURE-OF',  'EVALUATE-FOR', 'HYPONYM-OF']
-                self.sym_labels = ['NIL']
-                self.label_list = self.sym_labels + label_list
-            else:
-                label_list = ['PART-OF', 'USED-FOR',
-                              'FEATURE-OF',  'EVALUATE-FOR', 'HYPONYM-OF']
-                self.sym_labels = ['NIL', 'CONJUNCTION', 'COMPARE']
-                self.label_list = self.sym_labels + label_list
-=======
         # 实体id
         self.type2index = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
         self.num_ner_labels = len(self.type2index)
@@ -75,7 +35,6 @@ class PLMarkerDataset(Dataset):
         else:
             self.sym_labels = relations['no_sym'] + relations['sym']
             self.num_labels = relation_number*2 - 3
->>>>>>> origin/master
 
         if is_training:
             filename = os.path.join(args.data_dir, "train.json")
@@ -190,11 +149,7 @@ class PLMarkerDataset(Dataset):
                         if x[4] in self.sym_labels[1:]:
                             pos2label[w] = self.rel2index[x[4]]  # bug
                         else:
-<<<<<<< HEAD
-                            pos2label[w] = label_map[x[4]] + len(label_map) - len(self.sym_labels)
-=======
                             pos2label[w] = self.rel2index[x[4]] + len(self.rel2index) - len(self.sym_labels)
->>>>>>> origin/master
 
                 if self.is_training:
                     entities.append((10000, 10000, 'NIL'))  # only for NER
@@ -208,11 +163,7 @@ class PLMarkerDataset(Dataset):
 
                         if self.use_typemarker:
                             l_m = '[unused%d]' % (2 + sub_label)
-<<<<<<< HEAD
-                            r_m = '[unused%d]' % (2 + sub_label + len(self.ner_label_list))
-=======
                             r_m = '[unused%d]' % (2 + sub_label + len(self.type2index))
->>>>>>> origin/master
                         else:
                             l_m = '[unused0]'
                             r_m = '[unused1]'
