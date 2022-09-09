@@ -177,7 +177,21 @@ def main():
     elif args.model_type == "plmarker":
         from PLMarker import PLMakerPytochLighting, PLMarkerDataset, collate_fn
         train_dataset = PLMarkerDataset(args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,batch_size=args.batch_size, shuffle=True)
 
+        val_dataset = PLMarkerDataset(args, is_training=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+        golden_labels = val_dataset.golden_labels
+        golden_labels_withner = val_dataset.golden_labels_withner
+        args.golden_labels = golden_labels
+        args.golden_labels_withner = golden_labels_withner
+        args.ner_golden_labels = val_dataset.ner_golden_labels
+        args.global_predicted_ners = val_dataset.global_predicted_ners
+        args.num_labels = train_dataset.num_labels
+        args.num_ner_labels = train_dataset.num_ner_labels
+
+        args.steps = len(train_dataset)
+        model = PLMakerPytochLighting(args)
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
 

@@ -21,17 +21,20 @@ class PLMarkerDataset(Dataset):
 
         # 实体id
         self.type2index = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
+        self.num_ner_labels = len(self.type2index)
 
         # 关系id
         relations = json.load(open(os.path.join(args.data_dir, 'rel2id.json')))
         relation_list = relations['relation']
         self.rel2index = {label:i for i,label in enumerate(relation_list)}
-
+        relation_number = len(relation_list)
         # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
         if args.no_sym: # 不对特定关系采用双向识别
             self.sym_labels = relations['no_sym']
+            self.num_labels = relation_number*2 - 1
         else:
             self.sym_labels = relations['no_sym'] + relations['sym']
+            self.num_labels = relation_number*2 - 3
 
         if is_training:
             filename = os.path.join(args.data_dir, "train.json")
