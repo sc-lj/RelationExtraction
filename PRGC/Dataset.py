@@ -35,8 +35,7 @@ class PRGCDataset(Dataset):
     def __init__(self, args, is_training):
         super().__init__()
         self.args = args
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         self.is_training = is_training
         self.batch_size = args.batch_size
         with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:

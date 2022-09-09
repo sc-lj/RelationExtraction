@@ -1,0 +1,5 @@
+{   
+"relation":["NIL","CONJUNCTION","COMPARE","FEATURE-OF","EVALUATE-FOR","PART-OF","USED-FOR","HYPONYM-OF"],
+"sym":["CONJUNCTION","COMPARE"],
+"no_sym":["NIL"]
+}

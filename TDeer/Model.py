@@ -1,17 +1,15 @@
-import torch
-import torch.nn as nn
-from transformers.models.bert.modeling_bert import BertPreTrainedModel, BertModel
-from transformers.models.bert.configuration_bert import BertConfig
-from transformers.models.bert.modeling_bert import BertSelfAttention
-import numpy as np
-import json
-from transformers import DataCollatorWithPadding
-import pytorch_lightning as pl
-from utils.Callback import FGM
-from utils.loss_func import MLFocalLoss, BCEFocalLoss
-import math
 import os
+import json
+import math
+import torch
+import numpy as np
+import torch.nn as nn
+import pytorch_lightning as pl
 from utils.utils import rematch
+from utils.Callback import FGM
+import torch.nn.functional as F
+from utils.loss_func import MLFocalLoss, BCEFocalLoss
+from transformers.models.bert.modeling_bert import BertSelfAttention,BertSelfOutput,BertModel,BertPreTrainedModel
 
 
 class Linear(nn.Linear):
@@ -131,31 +129,29 @@ class SpatialDropout(nn.Module):
         return output
 
 
-class TDEER(nn.Module):
-    def __init__(self, pretrain_path, relation_number):
+class TDEER(BertPreTrainedModel):
+    def __init__(self, config, args):
         super().__init__()
-        self.bert = BertModel.from_pretrained(
-            pretrain_path, cache_dir="./bertbaseuncased")
-        config = BertConfig.from_pretrained(
-            pretrain_path, cache_dir="./bertbaseuncased")
-
+        self.bert = BertModel(config)
         hidden_size = config.hidden_size
-        relation_size = relation_number
+        relation_size = args.relation_number
+        self.args = args
         self.relation_embedding = nn.Embedding(relation_size, hidden_size)
-        self.entity_heads_out = nn.Linear(
-            hidden_size, 2)  # 预测subjects,objects的头部位置
-        self.entity_tails_out = nn.Linear(
-            hidden_size, 2)  # 预测subjects,objects的尾部位置
+        self.entity_heads_out = nn.Linear(hidden_size, 2)  # 预测subjects,objects的头部位置
+        self.entity_tails_out = nn.Linear(hidden_size, 2)  # 预测subjects,objects的尾部位置
         self.rels_out = nn.Linear(hidden_size, relation_size)  # 关系预测
         self.relu = nn.ReLU6()
         self.rel_feature = nn.Linear(hidden_size, hidden_size)
-        # self.attention = BertSelfAttention(config)
+        self.attention = BertSelfAttention(config)
+        self.selfoutput = BertSelfOutput(config)
         self.attention = Attention(config)
         self.obj_head = nn.Linear(hidden_size, 1)
         self.words_dropout = SpatialDropout(0.1)
-        self.conditionlayernormal = ConditionalLayerNorm(
-            hidden_size, hidden_size)
+        self.conditionlayernormal = ConditionalLayerNorm(hidden_size, hidden_size)
         self.hidden_size = hidden_size
+        # 对bert的所有hidden states进行加权平均
+        self.hidden_weight = nn.Linear(self.args.hidden_fuse_layers,1)
+        self.init_weights()
 
     def relModel(self, pooler_output):
         # predict relations
@@ -205,28 +201,31 @@ class TDEER(nn.Module):
             rel_feature = rel_feature.transpose(1, 0)
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1, 0)
+        feature = rel_feature+sub_feature
         # [batch_size,seq_len,hidden_size]
-        last_hidden_size = self.conditionlayernormal(last_hidden_size, rel_feature+sub_feature)  
+        hidden_size = self.conditionlayernormal(last_hidden_size, feature)  
         # [batch_size,seq_len,hidden_size]
         # obj_feature = last_hidden_size+rel_feature+sub_feature
-        obj_feature = last_hidden_size
+        obj_feature = hidden_size
 
         # bert self attention
-        # attention_mask = self.expand_attention_masks(attention_mask)
-        # value,*_ = self.attention(obj_feature,attention_mask)
-        # value = value+obj_feature # 残差结构
+        attention_mask = self.expand_attention_masks(attention_mask)
+        hidden,*_ = self.attention(obj_feature,attention_mask)
+        hidden = self.selfoutput(hidden,feature)
+        # 连接last_hidden_size残差的架构效果不好
+        # hidden += last_hidden_size
 
-        attention_mask = attention_mask.unsqueeze(1)
-        value = self.attention(obj_feature, attention_mask)
+        # attention_mask = attention_mask.unsqueeze(1)
+        # hidden = self.attention(obj_feature, attention_mask)
 
         # [batch_size,seq_len,1]
-        pred_obj_head = self.obj_head(value)
+        pred_obj_head = self.obj_head(hidden)
         # [batch_size,seq_len]
         pred_obj_head = pred_obj_head.squeeze(-1)
-        return pred_obj_head
+        return pred_obj_head,hidden
 
     def textEncode(self, input_ids, attention_masks, token_type_ids):
-        bert_output = self.bert(input_ids, attention_masks, token_type_ids)
+        bert_output = self.bert(input_ids, attention_masks, token_type_ids,output_hidden_states=True)
         return bert_output
 
     def forward(self, input_ids, attention_masks, token_type_ids, relation=None, sub_head=None, sub_tail=None):
@@ -243,23 +242,27 @@ class TDEER(nn.Module):
             _type_: _description_
         """
         # 文本编码
-        bert_output = self.textEncode(
-            input_ids, attention_masks, token_type_ids)
-        last_hidden_size = bert_output[0]
-        last_hidden_size = self.words_dropout(last_hidden_size)
+        bert_output = self.textEncode(input_ids, attention_masks, token_type_ids)
+        last_hidden_state = bert_output[0]
+        # last_hidden_size = self.words_dropout(last_hidden_size)
         pooler_output = bert_output[1]
         pred_rels = self.relModel(pooler_output)
-        pred_entity_heads, pred_entity_tails = self.entityModel(
-            last_hidden_size)
-        pred_obj_head = self.objModel(
-            relation, last_hidden_size, sub_head, sub_tail, attention_masks)
-        return pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head
+        if self.args.hidden_fuse: # 获取所有的hidden states进行加权平均
+            all_hidden_states = []
+            for hiden_state in bert_output[2][-self.args.hidden_fuse_layers:]:
+                all_hidden_states.append(hiden_state.unsqueeze(-1))
+            # [batch_size,seq_len,hidden_size,layer_number]
+            all_hidden_states = torch.cat(all_hidden_states,dim=-1)
+            # [batch_size,seq_len,hidden_size]
+            last_hidden_state = self.hidden_weight(all_hidden_states).squeeze(-1)
+        pred_entity_heads, pred_entity_tails = self.entityModel(last_hidden_state)
+        pred_obj_head, obj_hidden = self.objModel(relation, last_hidden_state, sub_head, sub_tail, attention_masks)
+        return pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head, obj_hidden, pooler_output
 
     def expand_attention_masks(self, attention_mask):
         batch_size, seq_length = attention_mask.shape
         # [batch_size,seq_len,seq_len]
-        causal_mask = attention_mask.unsqueeze(2).repeat(
-            1, 1, seq_length) * attention_mask[:, None, :]
+        causal_mask = attention_mask.unsqueeze(2).repeat(1, 1, seq_length) * attention_mask[:, None, :]
         causal_mask = causal_mask.to(attention_mask.dtype)
         # [batch_size,1,seq_len,seq_len]
         extended_attention_mask = causal_mask[:, None, :, :]
@@ -270,7 +273,7 @@ class TDEER(nn.Module):
 class TDEERPytochLighting(pl.LightningModule):
     def __init__(self, args) -> None:
         super().__init__()
-        self.model = TDEER(args.pretrain_path, args.relation_number)
+        self.model = TDEER.from_pretrained(args.pretrain_path,args)
         # 只针对对抗训练时，关闭自动优化
         # self.automatic_optimization = False
         self.fgm = FGM(self.model)
@@ -303,12 +306,12 @@ class TDEERPytochLighting(pl.LightningModule):
         self.manual_backward(loss_adv)
         opt.step()
 
-    def training_step(self, batch, step_idx):
+    def train_one(self,batch):
         batch_texts, batch_offsets, batch_tokens, batch_attention_masks, batch_segments, batch_entity_heads, batch_entity_tails, batch_rels, \
             batch_sample_subj_head, batch_sample_subj_tail, batch_sample_rel, batch_sample_obj_heads, batch_triple_sets, batch_text_masks = batch
         output = self.model(batch_tokens, batch_attention_masks, batch_segments,
                             relation=batch_sample_rel, sub_head=batch_sample_subj_head, sub_tail=batch_sample_subj_tail)
-        pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head = output
+        pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head, obj_hidden, last_hidden_size = output
 
         loss = 0
         rel_loss = self.rel_loss(pred_rels, batch_rels) + \
@@ -339,17 +342,56 @@ class TDEERPytochLighting(pl.LightningModule):
             self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
         loss += self.loss_weight[3]*entity_tail_loss
+        return loss,obj_hidden, last_hidden_size
 
+    def training_step(self, batch, step_idx):
+        loss,obj_hidden, last_hidden_size = self.train_one(batch)
+        if self.args.is_rdrop:
+            loss_2,obj_hidden_2, last_hidden_size_2 = self.train_one(batch)
+            loss = (loss+loss_2)/2
+            # obj_kl_loss = self.compute_kl_loss(obj_hidden,obj_hidden_2)
+            hidden_size_kl_loss = self.compute_kl_loss(last_hidden_size,last_hidden_size_2)
+            kl_loss = hidden_size_kl_loss
+            loss = loss + 5*kl_loss
+
+        return loss
+
+    def compute_kl_loss(self, p, q, pad_mask=None):
+        """计算两个hidden states的 KL散度
+        Args:
+            p ([type]): [description]
+            q ([type]): [description]
+            pad_mask ([type], optional): [description]. Defaults to None.
+        Returns:
+            [type]: [description]
+        """
+        p_loss = F.kl_div(F.log_softmax(p, dim=-1), F.softmax(q, dim=-1), reduction='none')
+        q_loss = F.kl_div(F.log_softmax(q, dim=-1), F.softmax(p, dim=-1), reduction='none')
+
+        if pad_mask is not None:
+            p_loss.masked_fill_(pad_mask.type(torch.bool), 0.)
+            q_loss.masked_fill_(pad_mask.type(torch.bool), 0.)
+
+        p_loss = p_loss.sum()
+        q_loss = q_loss.sum()
+        loss = (p_loss + q_loss) / 2
         return loss
 
     def validation_step(self, batch, step_idx):
         batch_texts, batch_offsets, batch_tokens, batch_attention_masks, batch_segments, batch_triple_sets, batch_triples_index_set, batch_text_masks = batch
-        bert_output = self.model.textEncode(
-            batch_tokens, batch_attention_masks, batch_segments,)
-        last_hidden_size = bert_output[0]
+        bert_output = self.model.textEncode(batch_tokens, batch_attention_masks, batch_segments,)
+        last_hidden_state = bert_output[0]
         pooler_output = bert_output[1]
-        entity_heads_logits, entity_tails_logits = self.model.entityModel(
-            last_hidden_size)
+        if self.args.hidden_fuse: # 获取所有的hidden states进行加权平均
+            all_hidden_states = []
+            for hiden_state in bert_output[2][-self.args.hidden_fuse_layers:]:
+                all_hidden_states.append(hiden_state.unsqueeze(-1))
+            # [batch_size,seq_len,hidden_size,layer_number]
+            all_hidden_states = torch.cat(all_hidden_states,dim=-1)
+            # [batch_size,seq_len,hidden_size]
+            last_hidden_state = self.model.hidden_weight(all_hidden_states).squeeze(-1)
+
+        entity_heads_logits, entity_tails_logits = self.model.entityModel(last_hidden_state)
         entity_heads_logits = torch.sigmoid(entity_heads_logits)
         entity_tails_logits = torch.sigmoid(entity_tails_logits)
         relations_logits = self.model.relModel(pooler_output)
@@ -403,17 +445,17 @@ class TDEERPytochLighting(pl.LightningModule):
                             batch_sub_entities.append(sub)
                             batch_rel_types.append(self.id2rel[str(rel)])
                     batch_sub_heads = torch.tensor(
-                        batch_sub_heads, dtype=torch.long, device=last_hidden_size.device)
+                        batch_sub_heads, dtype=torch.long, device=last_hidden_state.device)
                     batch_sub_tails = torch.tensor(
-                        batch_sub_tails, dtype=torch.long, device=last_hidden_size.device)
+                        batch_sub_tails, dtype=torch.long, device=last_hidden_state.device)
                     batch_rels = torch.tensor(
-                        batch_rels, dtype=torch.long, device=last_hidden_size.device)
-                    hidden = last_hidden_size[index].unsqueeze(0)
+                        batch_rels, dtype=torch.long, device=last_hidden_state.device)
+                    hidden = last_hidden_state[index].unsqueeze(0)
                     attention_mask = batch_attention_masks[index].unsqueeze(0)
                     batch_sub_heads = batch_sub_heads.transpose(1, 0)
                     batch_sub_tails = batch_sub_tails.transpose(1, 0)
                     batch_rels = batch_rels.transpose(1, 0)
-                    obj_head_logits = self.model.objModel(
+                    obj_head_logits,_ = self.model.objModel(
                         batch_rels, hidden, batch_sub_heads, batch_sub_tails, attention_mask)
                     obj_head_logits = torch.sigmoid(obj_head_logits)
                     obj_head_logits = obj_head_logits.cpu().numpy()

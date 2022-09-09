@@ -652,26 +652,20 @@ class GLREModuelPytochLighting(pl.LightningModule):
     def training_step(self, batches, batch_idx):
         bert_token, bert_mask, bert_starts = batches['bert_token'], batches['bert_mask'], batches['bert_starts']
         section, word_sec, entities = batches['section'], batches['word_sec'], batches['entities']
-        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches[
-            'distances_dir'], batches['multi_relations']
+        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches['distances_dir'], batches['multi_relations']
         relations = batches['relations']
-        graph, select = self.model(bert_token, bert_mask, bert_starts,
-                                   section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
-        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(
-            graph, relations[select], multi_rel[select])
+        graph, select = self.model(bert_token, bert_mask, bert_starts,section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
+        loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
 
         return loss
 
     def validation_step(self, batches, batch_idx):
         bert_token, bert_mask, bert_starts = batches['bert_token'], batches['bert_mask'], batches['bert_starts']
         section, word_sec, entities = batches['section'], batches['word_sec'], batches['entities']
-        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches[
-            'distances_dir'], batches['multi_relations']
+        rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches['distances_dir'], batches['multi_relations']
         relations = batches['relations']
-        graph, select = self.model(bert_token, bert_mask, bert_starts,
-                                   section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
-        loss, pred_pairs, multi_truths, mask, truth = self.estimate_loss(
-            graph, relations[select], multi_rel[select])
+        graph, select = self.model(bert_token, bert_mask, bert_starts, section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
+        loss, pred_pairs, multi_truths, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
 
         pred_pairs = torch.sigmoid(pred_pairs)
         predictions = pred_pairs.data.argmax(dim=1)
@@ -721,8 +715,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
     def fbeta_score(self, precision, recall, beta=1.0):
         beta_square = beta * beta
         if (precision != 0.0) and (recall != 0.0):
-            res = ((1 + beta_square) * precision * recall /
-                   (beta_square * precision + recall))
+            res = ((1 + beta_square) * precision * recall / (beta_square * precision + recall))
         else:
             res = 0.0
         return res

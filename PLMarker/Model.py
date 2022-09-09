@@ -1,6 +1,10 @@
+import os
+import json
 import torch
+import numpy as np
 import torch.nn as nn
 import pytorch_lightning as pl
+from collections import defaultdict
 from torch.nn import CrossEntropyLoss
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
@@ -8,24 +12,21 @@ from transformers.models.bert.modeling_bert import BertPreTrainedModel, BertMode
 
 
 class BertForACEBothOneDropoutSubNoNer(BertPreTrainedModel):
-    def __init__(self, config):
+    """ 不进行ner的预测 """
+    def __init__(self, config,args):
         super().__init__(config)
-        self.max_seq_length = config.max_seq_length
-        self.num_labels = config.num_labels
-        self.num_ner_labels = config.num_ner_labels
+        self.max_seq_length = args.max_seq_length
+        self.num_labels = args.num_labels
+        self.num_ner_labels = args.num_ner_labels
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
         # self.ner_classifier = nn.Linear(config.hidden_size*2, self.num_ner_labels)
 
-        self.re_classifier_m1 = nn.Linear(
-            config.hidden_size*2, self.num_labels)
-        self.re_classifier_m2 = nn.Linear(
-            config.hidden_size*2, self.num_labels)
-
-        self.alpha = torch.tensor(
-            [config.alpha] + [1.0] * (self.num_labels-1), dtype=torch.float32)
+        self.re_classifier_m1 = nn.Linear(config.hidden_size*2, self.num_labels)
+        self.re_classifier_m2 = nn.Linear(config.hidden_size*2, self.num_labels)
+        self.alpha = torch.tensor([args.alpha] + [1.0] * (self.num_labels-1), dtype=torch.float32)
 
         self.init_weights()
 
@@ -63,43 +64,24 @@ class BertForACEBothOneDropoutSubNoNer(BertPreTrainedModel):
 
         ner_prediction_scores = None
         return re_prediction_scores, ner_prediction_scores
-        # Add hidden states and attention if they are here
-        outputs = (re_prediction_scores, ) + outputs[2:]
-
-        if labels is not None:
-            loss_fct_re = CrossEntropyLoss(
-                ignore_index=-1,  weight=self.alpha.to(re_prediction_scores))
-            loss_fct_ner = CrossEntropyLoss(ignore_index=-1)
-            re_loss = loss_fct_re(
-                re_prediction_scores.view(-1, self.num_labels), labels.view(-1))
-            ner_loss = 0
-            loss = re_loss + ner_loss
-            outputs = (loss, re_loss, ner_loss) + outputs
-
-        # (masked_lm_loss), prediction_scores, (hidden_states), (attentions)
-        return outputs
 
 
 class BertForACEBothOneDropoutSub(BertPreTrainedModel):
-    def __init__(self, config):
+    """ 进行ner的预测 """
+    def __init__(self, config,args):
         super().__init__(config)
-        self.max_seq_length = config.max_seq_length
-        self.num_labels = config.num_labels
-        self.num_ner_labels = config.num_ner_labels
+        self.max_seq_length = args.max_seq_length
+        self.num_labels = args.num_labels
+        self.num_ner_labels = args.num_ner_labels
 
         self.bert = BertModel(config)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        # ner预测
+        self.ner_classifier = nn.Linear(config.hidden_size*2, self.num_ner_labels)
+        self.re_classifier_m1 = nn.Linear(config.hidden_size*2, self.num_labels)
+        self.re_classifier_m2 = nn.Linear(config.hidden_size*2, self.num_labels)
 
-        self.ner_classifier = nn.Linear(
-            config.hidden_size*2, self.num_ner_labels)
-
-        self.re_classifier_m1 = nn.Linear(
-            config.hidden_size*2, self.num_labels)
-        self.re_classifier_m2 = nn.Linear(
-            config.hidden_size*2, self.num_labels)
-
-        self.alpha = torch.tensor(
-            [config.alpha] + [1.0] * (self.num_labels-1), dtype=torch.float32)
+        self.alpha = torch.tensor([args.alpha] + [1.0] * (self.num_labels-1), dtype=torch.float32)
 
         self.init_weights()
 
@@ -135,32 +117,39 @@ class BertForACEBothOneDropoutSub(BertPreTrainedModel):
         m1_scores = self.re_classifier_m1(m1_states)  # bsz, num_label
         m2_scores = self.re_classifier_m2(feature_vector)  # bsz, ent_len, num_label
         re_prediction_scores = m1_scores.unsqueeze(1) + m2_scores
-
         return re_prediction_scores, ner_prediction_scores
-        # Add hidden states and attention if they are here
-        outputs = (re_prediction_scores, ner_prediction_scores) + outputs[2:]
-
-        if labels is not None:
-
-            re_loss = loss_fct_re(
-                re_prediction_scores.view(-1, self.num_labels), labels.view(-1))
-            ner_loss = loss_fct_ner(
-                ner_prediction_scores.view(-1, self.num_ner_labels), ner_labels.view(-1))
-
-            loss = re_loss + ner_loss
-            outputs = (loss, re_loss, ner_loss) + outputs
-
-        # (masked_lm_loss), prediction_scores, (hidden_states), (attentions)
-        return outputs
 
 
 class PLMakerPytochLighting(pl.LightningModule):
     def __init__(self, args) -> None:
         super().__init__()
+        self.golden_labels = args.golden_labels
+        self.golden_labels_withner = args.golden_labels_withner
+        self.ner_golden_labels = args.ner_golden_labels
+        self.global_predicted_ners = args.global_predicted_ners
+        args.__delattr__("golden_labels")
+        args.__delattr__("golden_labels_withner")
+        args.__delattr__("global_predicted_ners")
+        args.__delattr__("ner_golden_labels")
+
         self.args = args
-        self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path)
+        self.ner2id = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
+        self.id2ner = {v:k for k,v in self.ner2id.items()}
+        self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path,args)
         self.loss_fct_re = CrossEntropyLoss(ignore_index=-1,  weight=self.alpha)
         self.loss_fct_ner = CrossEntropyLoss(ignore_index=-1)
+        relations = json.load(open(os.path.join(args.data_dir, 'rel2id.json')))
+        self.relation_list = relations['relation']
+        self.rel2index = {label:i for i,label in enumerate(self.relation_list)}
+        self.num_label = len(self.relation_list)
+
+        # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
+        if args.no_sym: # 不对特定关系采用双向识别
+            self.sym_labels = relations['no_sym']
+        else:
+            self.sym_labels = relations['no_sym'] + relations['sym']
+
+        self.save_hyperparameters(args)
 
     def forward(self, *args, **kwargs):
         return super().forward(*args, **kwargs)
@@ -181,11 +170,9 @@ class PLMakerPytochLighting(pl.LightningModule):
             inputs['sub_ner_labels'] = batch[7]
 
         re_prediction_scores, ner_prediction_scores = self.model(**inputs)
-        re_loss = self.loss_fct_re(
-            re_prediction_scores.view(-1, self.num_labels), labels.view(-1))
+        re_loss = self.loss_fct_re(re_prediction_scores.view(-1, self.num_labels), labels.view(-1))
         if ner_prediction_scores is not None:
-            ner_loss = self.loss_fct_ner(
-                ner_prediction_scores.view(-1, self.num_ner_labels), ner_labels.view(-1))
+            ner_loss = self.loss_fct_ner(ner_prediction_scores.view(-1, self.num_ner_labels), ner_labels.view(-1))
         else:
             ner_loss = 0
         loss = re_loss + ner_loss
@@ -196,8 +183,13 @@ class PLMakerPytochLighting(pl.LightningModule):
                   'attention_mask': batch[1],
                   'position_ids':   batch[2],
                   }
+        scores = defaultdict(dict)
+        # ner_pred = not args.model_type.endswith('noner')
+        example_subs = set([])
 
-        labels = batch[5]
+        subs = batch[-2]
+        batch_m2s = batch[-1]
+        indexs = batch[-3]
         ner_labels = batch[6]
 
         inputs['sub_positions'] = batch[3]
@@ -208,7 +200,153 @@ class PLMakerPytochLighting(pl.LightningModule):
 
         re_prediction_scores, ner_prediction_scores = self.model(**inputs)
 
-        return
+        if self.args.eval_logsoftmax:  # perform a bit better
+            logits = torch.nn.functional.log_softmax(re_prediction_scores, dim=-1)
+
+        elif self.args.eval_softmax:
+            logits = torch.nn.functional.softmax(re_prediction_scores, dim=-1)
+
+        if self.args.use_ner_results or self.args.model_type.endswith('nonersub'):                 
+            ner_preds = ner_labels
+        else:
+            ner_preds = torch.argmax(ner_prediction_scores, dim=-1)
+        logits = logits.cpu().numpy()
+        ner_preds = ner_preds.cpu().numpy()
+        for i in range(len(indexs)):
+            index = indexs[i]
+            sub = subs[i]
+            m2s = batch_m2s[i]
+            example_subs.add(((index[0], index[1]), (sub[0], sub[1])))
+            for j in range(len(m2s)):
+                obj = m2s[j]
+                ner_label = self.id2ner[ner_preds[i,j]]
+                scores[(index[0], index[1])][( (sub[0], sub[1]), (obj[0], obj[1]))] = (logits[i, j].tolist(), ner_label)
+        
+        
+        return scores
+    
+    def validation_epoch_end(self, outputs) :
+        scores = {}
+        for output in outputs:
+            scores.update(output)
+        cor = 0 
+        tot_pred = 0
+        cor_with_ner = 0
+        ner_cor = 0 
+        ner_tot_pred = 0
+        ner_ori_cor = 0
+        tot_output_results = defaultdict(list)
+        for example_index, pair_dict in sorted(scores.items(), key=lambda x:x[0]):  
+            visited  = set([])
+            sentence_results = []
+            for k1, (v1, v2_ner_label) in pair_dict.items():
+                if k1 in visited:
+                    continue
+                visited.add(k1)
+                if v2_ner_label=='NIL':
+                    continue
+                v1 = list(v1)
+                m1 = k1[0]
+                m2 = k1[1]
+                if m1 == m2:
+                    continue
+                k2 = (m2, m1)
+                v2s = pair_dict.get(k2, None)
+                if v2s is not None:
+                    visited.add(k2)
+                    v2, v1_ner_label = v2s
+                    v2 = v2[ : len(self.sym_labels)] + v2[self.num_label:] + v2[len(self.sym_labels) : self.num_label]
+                    for j in range(len(v2)):
+                        v1[j] += v2[j]
+                else:
+                    assert ( False )
+
+                if v1_ner_label=='NIL':
+                    continue
+
+                pred_label = np.argmax(v1)
+                if pred_label>0:
+                    if pred_label >= self.num_label:
+                        pred_label = pred_label - self.num_label + len(self.sym_labels)
+                        m1, m2 = m2, m1
+                        v1_ner_label, v2_ner_label = v2_ner_label, v1_ner_label
+
+                    pred_score = v1[pred_label]
+
+                    sentence_results.append( (pred_score, m1, m2, pred_label, v1_ner_label, v2_ner_label) )
+
+            sentence_results.sort(key=lambda x: -x[0])
+            no_overlap = []
+            def is_overlap(m1, m2):
+                if m2[0]<=m1[0] and m1[0]<=m2[1]:
+                    return True
+                if m1[0]<=m2[0] and m2[0]<=m1[1]:
+                    return True
+                return False
+
+            output_preds = []
+
+            for item in sentence_results:
+                m1 = item[1]
+                m2 = item[2]
+                overlap = False
+                for x in no_overlap:
+                    _m1 = x[1]
+                    _m2 = x[2]
+                    # same relation type & overlap subject & overlap object --> delete
+                    if item[3]==x[3] and (is_overlap(m1, _m1) and is_overlap(m2, _m2)):
+                        overlap = True
+                        break
+
+                pred_label = self.relation_list[item[3]]
+
+
+                if not overlap:
+                    no_overlap.append(item)
+
+            pos2ner = {}
+
+            for item in no_overlap:
+                m1 = item[1]
+                m2 = item[2]
+                pred_label = self.relation_list[item[3]]
+                tot_pred += 1
+                if pred_label in self.sym_labels:
+                    tot_pred += 1 # duplicate
+                    if (example_index, m1, m2, pred_label) in self.golden_labels or (example_index, m2, m1, pred_label) in self.golden_labels:
+                        cor += 2
+                else:
+                    if (example_index, m1, m2, pred_label) in self.golden_labels:
+                        cor += 1        
+
+                if m1 not in pos2ner:
+                    pos2ner[m1] = item[4]
+                if m2 not in pos2ner:
+                    pos2ner[m2] = item[5]
+
+                output_preds.append((m1, m2, pred_label))
+                if pred_label in self.sym_labels:
+                    if (example_index, (m1[0], m1[1], pos2ner[m1]), (m2[0], m2[1], pos2ner[m2]), pred_label) in self.golden_labels_withner  \
+                            or (example_index,  (m2[0], m2[1], pos2ner[m2]), (m1[0], m1[1], pos2ner[m1]), pred_label) in self.golden_labels_withner:
+                        cor_with_ner += 2
+                else:  
+                    if (example_index, (m1[0], m1[1], pos2ner[m1]), (m2[0], m2[1], pos2ner[m2]), pred_label) in self.golden_labels_withner:
+                        cor_with_ner += 1      
+
+            tot_output_results[example_index[0]].append((example_index[1],  output_preds))
+
+            # refine NER results
+            ner_results = list(self.global_predicted_ners[example_index])
+            for i in range(len(ner_results)):
+                start, end, label = ner_results[i] 
+                if (example_index, (start, end), label) in self.ner_golden_labels:
+                    ner_ori_cor += 1
+                if (start, end) in pos2ner:
+                    label = pos2ner[(start, end)]
+                if (example_index, (start, end), label) in self.ner_golden_labels:
+                    ner_cor += 1
+                ner_tot_pred += 1
+        
 
     def configure_optimizers(self):
         no_decay = ['bias', 'LayerNorm.weight']

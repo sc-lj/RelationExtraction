@@ -1,0 +1,97 @@
+Wikidata ID	Name	Description
+P6	head of government	head of the executive power of this town, city, municipality, state, country, or other governmental body
+P17	country	sovereign state of this item; don’t use on humans
+P19	place of birth	most specific known (e.g. city instead of country, or hospital instead of city) birth location of a person, animal or fictional character
+P20	place of death	most specific known (e.g. city instead of country, or hospital instead of city) death location of a person, animal or fictional character
+P22	father	male parent of the subject. For stepfather, use ”stepparent” (P3448)
+P25	mother	female parent of the subject. For stepmother, use ”stepparent” (P3448)
+P26	spouse	the subject has the object as their spouse (husband, wife, partner, etc.). Use ”unmarried partner” (P451) for non-married companions
+P27	country of citizenship	the object is a country that recognizes the subject as its citizen
+P30	continent	continent of which the subject is a part
+P31	instance of	that class of which this subject is a particular example and member. (Subject typically an individual member with Proper Name label.) Different from P279 (subclass of)
+P35	head of state	official with the highest formal authority in a country/state
+P36	capital	primary city of a country, state or other type of administrative territorial entity
+P37	official language	language designated as official by this item
+P39	position held	subject currently or formerly holds the object position or public office
+P40	child	subject has the object in their family as their offspring son or daughter (independently of their age)
+P50	author	main creator(s) of a written work (use on works, not humans)
+P54	member of sports team	sports teams or clubs that the subject currently represents or formerly represented
+P57	director	director(s) of this motion picture, TV-series, stageplay, video game or similar
+P58	screenwriter	author(s) of the screenplay or script for this work
+P69	educated at	educational institution attended by the subject
+P86	composer	person(s) who wrote the music; also use P676 for lyricist
+P102	member of political party	the political party of which this politician is or has been a member
+P108	employer	person or organization for which the subject works or worked
+P112	founded by	founder or co-founder of this organization, religion or place
+P118	league	league in which team or player plays or has played in
+P123	publisher	organization or person responsible for publishing books, periodicals, games or software
+P127	owned by	owner of the subject
+P131	located in the administrative territorial entity	the item is located on the territory of the following administrative entity. Use P276 (location) for specifying the location of non-administrative places and for items about events
+P136	genre	a creative work’s genre or an artist’s field of work (P101). Use main subject (P921) to relate creative works to their topic
+P137	operator	person or organization that operates the equipment, facility, or service; use country for diplomatic missions
+P140	religion	religion of a person, organization or religious building, or associated with this subject
+P150	contains administrative territorial entity	(list of) direct subdivisions of an administrative territorial entity
+P155	follows	immediately prior item in some series of which the subject is part. Use P1365 (replaces) if the preceding item was replaced, e.g. political offices, states and there is no identity between precedent and following geographic unit
+P156	followed by	immediately following item in some series of which the subject is part. Use P1366 (replaced by) if the item is replaced, e.g. political offices, states
+P159	headquarters location	specific location where an organization’s headquarters is or has been situated
+P161	cast member	actor performing live for a camera or audience [use ”character role” (P453) and/or ”name of the character role” (P4633) as qualifiers] [use ”voice actor” (P725) for voice-only role]
+P162	producer	producer(s) of this film or music work (film: not executive producers, associate producers, etc.) [use P272 to refer to the production company]
+P166	award received	award or recognition received by a person, organisation or creative work
+P170	creator	maker of a creative work or other object (where no more specific property exists)
+P171	parent taxon	closest parent taxon of the taxon in question
+P172	ethnic group	subject’s ethnicity (consensus is that a VERY high standard of proof is needed for this field to be used. In general this means 1) the subject claims it him/herself, or 2) it is widely agreed on by scholars, or 3) is fictional and portrayed as such).
+P175	performer	performer involved in the performance or the recording of a work
+P176	manufacturer	manufacturer or producer of this product
+P178	developer	organisation or person that developed this item
+P179	series	subject is part of a series, whose sum constitutes the object
+P190	sister city	twin towns, sister cities, twinned municipalities and other localities that have a partnership or cooperative agreement, either legally or informally acknowledged by their governments
+P194	legislative body	legislative body governing this entity; political institution with elected representatives, such as a parliament/legislature or council
+P205	basin country	country that have drainage to/from or border the body of water
+P206	located in or next to body of water	sea, lake or river
+P241	military branch	branch to which this military unit, award, office, or person belongs, e.g. Royal Navy
+P264	record label	brand and trademark associated with the marketing of subject music recordings and music videos
+P272	production company	company that produced this film, audio or performing arts work
+P276	location	location of the item, physical object or event is within. In case of an administrative entity use P131. In case of a distinct terrain feature use P706.
+P279	subclass of	all instances of these items are instances of those items; this item is a class (subset) of that item. Not to be confused with P31 (instance of)
+P355	subsidiary	subsidiary of a company or organization, opposite of parent company (P749)
+P361	part of	object of which the subject is a part. Inverse property of ”has part” (P527). See also ”has parts of the class” (P2670).
+P364	original language of work	language in which a film or a performance work was originally created. Deprecated for written works; use P407 (”language of work or name”) instead.
+P400	platform	platform for which a work has been developed or released / specific platform version of a software developed
+P403	mouth of the watercourse	the body of water to which the watercourse drains
+P449	original network	network(s) the radio or television show was originally aired on, including
+P463	member of	organization or club to which the subject belongs. Do not use for membership in ethnic or social groups, nor for holding a position such as a member of parliament (use P39 for that).
+P488	chairperson	presiding member of an organization, group or body
+P495	country of origin	country of origin of the creative work or subject item
+P527	has part	part of this subject. Inverse property of ”part of” (P361).
+P551	residence	the place where the person is, or has been, resident
+P569	date of birth	date on which the subject was born
+P570	date of death	date on which the subject died
+P571	inception	date or point in time when the organization/subject was founded/created
+P576	dissolved, abolished or demolished	date or point in time on which an organisation was dissolved/disappeared or a building demolished; see also discontinued date (P2669)
+P577	publication date	date or point in time a work is first published or released
+P580	start time	indicates the time an item begins to exist or a statement starts being valid
+P582	end time	indicates the time an item ceases to exist or a statement stops being valid
+P585	point in time	time and date something took place, existed or a statement was true
+P607	conflict	battles, wars or other military engagements in which the person or item participated
+P674	characters	characters which appear in this item (like plays, operas, operettas, books, comics, films, TV series, video games)
+P676	lyrics by	author of song lyrics; also use P86 for music composer
+P706	located on terrain feature	located on the specified landform. Should not be used when the value is only political/administrative (provinces, states, countries, etc.). Use P131 for administrative entity.
+P710	participant	person, group of people or organization (object) that actively takes/took part in the event (subject). Preferably qualify with ”object has role” (P3831). Use P1923 for team participants.
+P737	influenced by	this person, idea, etc. is informed by that other person, idea, etc., e.g. ”Heidegger was influenced by Aristotle”.
+P740	location of formation	location where a group or organization was formed
+P749	parent organization	parent organization of an organisation, opposite of subsidiaries (P355)
+P800	notable work	notable scientific, artistic or literary work, or other work of significance among subject’s works
+P807	separated from	subject was founded or started by separating from identified object
+P840	narrative location	the narrative of the work is set in this location
+P937	work location	location where persons were active
+P1001	applies to jurisdiction	the item (an institution, law, public office ...) belongs to or has power over or applies to the value (a territorial jurisdiction: a country, state, municipality, ...)
+P1056	product or material produced	material or product produced by a government agency, business, industry, facility, or process
+P1198	unemployment rate	portion of a workforce population that is not employed
+P1336	territory claimed by	administrative divisions that claim control of a given area
+P1344	participant of	event a person or an organization was a participant in, inverse of P710 or P1923
+P1365	replaces	person or item replaced. Use P1398 (structure replaces) for structures. Use P155 (follows) if the previous item was not replaced or if predecessor and successor are identical.
+P1366	replaced by	person or item which replaces another. Use P156 (followed by) if the item is not replaced (e.g. books in a series), nor identical
+P1376	capital of	country, state, department, canton or other administrative division of which the municipality is the governmental seat
+P1412	languages spoken, written or signed	language(s) that a person speaks or writes, including the native language(s)
+P1441	present in work	work in which this fictional entity (Q14897293) or historical person is present
+P3373	sibling	the subject has the object as their sibling (brother, sister, etc.). Use ”relative” (P1038) for siblingsin-law (brother-in-law, sister-in-law, etc.) and step-siblings (step-brothers, step-sisters, etc.)

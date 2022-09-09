@@ -22,8 +22,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 class TDEERDataset(Dataset):
     def __init__(self, args, is_training=False):
         super().__init__()
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         self.is_training = is_training
         self.neg_samples = args.neg_samples
         self.batch_size = args.batch_size

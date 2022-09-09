@@ -12,5 +12,7 @@ eval_unidirect: false
 att_right: false
 # 对attention_mask 进行下三角mask
 att_left: false
-#
+# 是否对特定关系采用双向关系识别,即关系的head和tail是无向的
 no_sym: false
+# 对所有的关系组合进行随机shuffle
+shuffle: true

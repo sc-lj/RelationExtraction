@@ -19,8 +19,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 class Spn4REDataset(Dataset):
     def __init__(self, args, is_training) -> None:
         super().__init__()
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         self.is_training = is_training
         with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)

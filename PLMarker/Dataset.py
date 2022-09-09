@@ -7,40 +7,19 @@ import numpy as np
 from torch.utils.data import Dataset
 from transformers.models.roberta.tokenization_roberta import RobertaTokenizer
 
-
-class ACEDataset(Dataset):
-    def __init__(self, tokenizer, args=None, evaluate=False, do_test=False, max_pair_length=None):
-
-        if not evaluate:
-            file_path = os.path.join(args.data_dir, args.train_file)
-        else:
-            if do_test:
-                if args.test_file.find('models') == -1:
-                    file_path = os.path.join(args.data_dir, args.test_file)
-                else:
-                    file_path = args.test_file
-            else:
-                if args.dev_file.find('models') == -1:
-                    file_path = os.path.join(args.data_dir, args.dev_file)
-                else:
-                    file_path = args.dev_file
-
-        assert os.path.isfile(file_path)
-
-        self.file_path = file_path
-
-        self.tokenizer = tokenizer
+class PLMarkerDataset(Dataset):
+    def __init__(self, tokenizer, args, is_training):
+        self.is_training = is_training
         self.max_seq_length = args.max_seq_length
-        self.max_pair_length = max_pair_length
+        self.max_pair_length = args.max_pair_length
         self.max_entity_length = self.max_pair_length*2
-
-        self.evaluate = evaluate
         self.use_typemarker = args.use_typemarker
         self.local_rank = args.local_rank
-        self.args = args
         self.model_type = args.model_type
         self.no_sym = args.no_sym
+        self.args = args
 
+<<<<<<< HEAD
         if args.data_dir.find('ace05') != -1:
             self.ner_label_list = ['NIL', 'FAC', 'WEA', 'LOC', 'VEH', 'GPE', 'ORG', 'PER']
 
@@ -79,31 +58,47 @@ class ACEDataset(Dataset):
                               'FEATURE-OF',  'EVALUATE-FOR', 'HYPONYM-OF']
                 self.sym_labels = ['NIL', 'CONJUNCTION', 'COMPARE']
                 self.label_list = self.sym_labels + label_list
+=======
+        # 实体id
+        self.type2index = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
+        self.num_ner_labels = len(self.type2index)
 
+        # 关系id
+        relations = json.load(open(os.path.join(args.data_dir, 'rel2id.json')))
+        relation_list = relations['relation']
+        self.rel2index = {label:i for i,label in enumerate(relation_list)}
+        relation_number = len(relation_list)
+        # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
+        if args.no_sym: # 不对特定关系采用双向识别
+            self.sym_labels = relations['no_sym']
+            self.num_labels = relation_number*2 - 1
         else:
-            assert (False)
+            self.sym_labels = relations['no_sym'] + relations['sym']
+            self.num_labels = relation_number*2 - 3
+>>>>>>> origin/master
+
+        if is_training:
+            filename = os.path.join(args.data_dir, "train.json")
+        else:
+            filename = os.path.join(args.data_dir, "dev.json")
+
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+
+        self.tokenizer = tokenizer
+        self.cls_token = self.tokenizer.cls_token
+        self.sep_token = self.tokenizer.sep_token
 
         self.global_predicted_ners = {}
-        self.initialize()
+        self.initialize(lines)
 
-    def initialize(self):
-        tokenizer = self.tokenizer
-        vocab_size = tokenizer.vocab_size
+    def initialize(self,lines):
         max_num_subwords = self.max_seq_length - 4  # for two marker
-        label_map = {label: i for i, label in enumerate(self.label_list)}
-        ner_label_map = {label: i for i,
-                         label in enumerate(self.ner_label_list)}
-
         def tokenize_word(text):
-            if (
-                isinstance(tokenizer, RobertaTokenizer)
-                and (text[0] != "'")
-                and (len(text) != 1 or not self.is_punctuation(text))
-            ):
-                return tokenizer.tokenize(text, add_prefix_space=True)
-            return tokenizer.tokenize(text)
+            if (isinstance(self.tokenizer, RobertaTokenizer)and (text[0] != "'") and (len(text) != 1 or not self.is_punctuation(text))):
+                return self.tokenizer.tokenize(text, add_prefix_space=True)
+            return self.tokenizer.tokenize(text)
 
-        f = open(self.file_path, "r", encoding='utf-8')
         self.ner_tot_recall = 0
         self.tot_recall = 0
         self.data = []
@@ -112,13 +107,8 @@ class ACEDataset(Dataset):
         self.golden_labels_withner = set([])
         maxR = 0
         maxL = 0
-        for l_idx, line in enumerate(f):
+        for l_idx, line in enumerate(lines):
             data = json.loads(line)
-
-            if self.args.output_dir.find('test') != -1:
-                if len(self.data) > 100:
-                    break
-
             sentences = data['sentences']
             if 'predicted_ner' in data:       # e2e predict
                 ners = data['predicted_ner']
@@ -126,9 +116,7 @@ class ACEDataset(Dataset):
                 ners = data['ner']
 
             std_ners = data['ner']
-
             relations = data['relations']
-
             for sentence_relation in relations:
                 for x in sentence_relation:
                     if x[4] in self.sym_labels[1:]:
@@ -147,40 +135,25 @@ class ACEDataset(Dataset):
             tokens = [tokenize_word(w) for w in words]
             subwords = [w for li in tokens for w in li]
             maxL = max(maxL, len(subwords))
-            subword2token = list(itertools.chain(
-                *[[i] * len(li) for i, li in enumerate(tokens)]))
-            token2subword = [0] + \
-                list(itertools.accumulate(len(li) for li in tokens))
-            subword_start_positions = frozenset(token2subword)
-            subword_sentence_boundaries = [
-                sum(len(li) for li in tokens[:p]) for p in sentence_boundaries]
-
+            token2subword = [0] + list(itertools.accumulate(len(li) for li in tokens))
+            subword_sentence_boundaries = [sum(len(li) for li in tokens[:p]) for p in sentence_boundaries]
             for n in range(len(subword_sentence_boundaries) - 1):
-
                 sentence_ners = ners[n]
                 sentence_relations = relations[n]
                 std_ner = std_ners[n]
-
                 std_entity_labels = {}
                 self.ner_tot_recall += len(std_ner)
-
                 for start, end, label in std_ner:
                     std_entity_labels[(start, end)] = label
-                    self.ner_golden_labels.add(
-                        ((l_idx, n), (start, end), label))
-
+                    self.ner_golden_labels.add(((l_idx, n), (start, end), label))
                 self.global_predicted_ners[(l_idx, n)] = list(sentence_ners)
-
                 doc_sent_start, doc_sent_end = subword_sentence_boundaries[n: n + 2]
-
                 left_length = doc_sent_start
                 right_length = len(subwords) - doc_sent_end
                 sentence_length = doc_sent_end - doc_sent_start
-                half_context_length = int(
-                    (max_num_subwords - sentence_length) / 2)
+                half_context_length = int((max_num_subwords - sentence_length) / 2)
 
                 if sentence_length < max_num_subwords:
-
                     if left_length < right_length:
                         left_context_length = min(
                             left_length, half_context_length)
@@ -193,16 +166,13 @@ class ACEDataset(Dataset):
                             left_length, max_num_subwords - right_context_length - sentence_length)
 
                 doc_offset = doc_sent_start - left_context_length
-                target_tokens = subwords[doc_offset: doc_sent_end +
-                                         right_context_length]
-                target_tokens = [tokenizer.cls_token] + \
-                    target_tokens[: self.max_seq_length - 4] + \
-                    [tokenizer.sep_token]
+                target_tokens = subwords[doc_offset: doc_sent_end + right_context_length]
+                target_tokens = [self.cls_token] + target_tokens[: self.max_seq_length - 4] + [self.sep_token]
                 assert(len(target_tokens) <= self.max_seq_length - 2)
 
                 pos2label = {}
                 for x in sentence_relations:
-                    pos2label[(x[0], x[1], x[2], x[3])] = label_map[x[4]]
+                    pos2label[(x[0], x[1], x[2], x[3])] = self.rel2index[x[4]]
                     self.golden_labels.add(
                         ((l_idx, n), (x[0], x[1]), (x[2], x[3]), x[4]))
                     self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(
@@ -218,36 +188,41 @@ class ACEDataset(Dataset):
                     w = (x[2], x[3], x[0], x[1])
                     if w not in pos2label:
                         if x[4] in self.sym_labels[1:]:
-                            pos2label[w] = label_map[x[4]]  # bug
+                            pos2label[w] = self.rel2index[x[4]]  # bug
                         else:
+<<<<<<< HEAD
                             pos2label[w] = label_map[x[4]] + len(label_map) - len(self.sym_labels)
+=======
+                            pos2label[w] = self.rel2index[x[4]] + len(self.rel2index) - len(self.sym_labels)
+>>>>>>> origin/master
 
-                if not self.evaluate:
+                if self.is_training:
                     entities.append((10000, 10000, 'NIL'))  # only for NER
 
                 for sub in entities:
                     cur_ins = []
-
                     if sub[0] < 10000:
                         sub_s = token2subword[sub[0]] - doc_offset + 1
                         sub_e = token2subword[sub[1]+1] - doc_offset
-                        sub_label = ner_label_map[sub[2]]
+                        sub_label = self.type2index[sub[2]]
 
                         if self.use_typemarker:
                             l_m = '[unused%d]' % (2 + sub_label)
+<<<<<<< HEAD
                             r_m = '[unused%d]' % (2 + sub_label + len(self.ner_label_list))
+=======
+                            r_m = '[unused%d]' % (2 + sub_label + len(self.type2index))
+>>>>>>> origin/master
                         else:
                             l_m = '[unused0]'
                             r_m = '[unused1]'
 
-                        sub_tokens = target_tokens[:sub_s] + [
-                            l_m] + target_tokens[sub_s:sub_e+1] + [r_m] + target_tokens[sub_e+1:]
+                        sub_tokens = target_tokens[:sub_s] + [l_m] + target_tokens[sub_s:sub_e+1] + [r_m] + target_tokens[sub_e+1:]
                         sub_e += 2
                     else:
                         sub_s = len(target_tokens)
                         sub_e = len(target_tokens)+1
-                        sub_tokens = target_tokens + \
-                            ['[unused0]',  '[unused1]']
+                        sub_tokens = target_tokens + ['[unused0]',  '[unused1]']
                         sub_label = -1
 
                     if sub_e >= self.max_seq_length-1:
@@ -274,14 +249,12 @@ class ACEDataset(Dataset):
                             if obj[1] > sub[1]:
                                 right += 1
 
-                        label = pos2label.get(
-                            (sub[0], sub[1], obj[0], obj[1]), 0)
+                        label = pos2label.get((sub[0], sub[1], obj[0], obj[1]), 0)
 
                         if right >= self.max_seq_length-1:
                             continue
 
-                        cur_ins.append(
-                            ((left, right, ner_label_map[obj_label]), label, obj))
+                        cur_ins.append(((left, right, self.type2index[obj_label]), label, obj))
 
                     maxR = max(maxR, len(cur_ins))
                     dL = self.max_pair_length
@@ -299,8 +272,6 @@ class ACEDataset(Dataset):
                         }
 
                         self.data.append(item)
-        print('maxR: %s', maxR)
-        print('maxL: %s', maxL)
 
     def __len__(self):
         return len(self.data)
@@ -362,8 +333,8 @@ class ACEDataset(Dataset):
             ner_labels.append(m2[2])
 
             if self.use_typemarker:
-                l_m = '[unused%d]' % (2 + m2[2] + len(self.ner_label_list)*2)
-                r_m = '[unused%d]' % (2 + m2[2] + len(self.ner_label_list)*3)
+                l_m = '[unused%d]' % (2 + m2[2] + len(self.type2index)*2)
+                r_m = '[unused%d]' % (2 + m2[2] + len(self.type2index)*3)
                 l_m = self.tokenizer._convert_token_to_id(l_m)
                 r_m = self.tokenizer._convert_token_to_id(r_m)
                 input_ids[w1] = l_m
@@ -398,15 +369,13 @@ class ACEDataset(Dataset):
 
         return item
 
-    @staticmethod
-    def collate_fn(batch):
-        fields = [x for x in zip(*batch)]
+def collate_fn(batch):
+    fields = [x for x in zip(*batch)]
 
-        num_metadata_fields = 3
-        # don't stack metadata fields
-        stacked_fields = [torch.stack(field)
-                          for field in fields[:-num_metadata_fields]]
-        # add them as lists not torch tensors
-        stacked_fields.extend(fields[-num_metadata_fields:])
+    num_metadata_fields = 3
+    # don't stack metadata fields
+    stacked_fields = [torch.stack(field) for field in fields[:-num_metadata_fields]]
+    # add them as lists not torch tensors
+    stacked_fields.extend(fields[-num_metadata_fields:])
 
-        return stacked_fields
+    return stacked_fields
