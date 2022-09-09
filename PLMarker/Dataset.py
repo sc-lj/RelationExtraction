@@ -5,6 +5,7 @@ import torch
 import itertools
 import numpy as np
 from torch.utils.data import Dataset
+from transformers.models.roberta.tokenization_roberta import RobertaTokenizer
 
 
 class ACEDataset(Dataset):
@@ -41,27 +42,22 @@ class ACEDataset(Dataset):
         self.no_sym = args.no_sym
 
         if args.data_dir.find('ace05') != -1:
-            self.ner_label_list = ['NIL', 'FAC', 'WEA',
-                                   'LOC', 'VEH', 'GPE', 'ORG', 'PER']
+            self.ner_label_list = ['NIL', 'FAC', 'WEA', 'LOC', 'VEH', 'GPE', 'ORG', 'PER']
 
             if args.no_sym:
-                label_list = ['PER-SOC', 'ART', 'ORG-AFF',
-                              'GEN-AFF', 'PHYS', 'PART-WHOLE']
+                label_list = ['PER-SOC', 'ART', 'ORG-AFF', 'GEN-AFF', 'PHYS', 'PART-WHOLE']
                 self.sym_labels = ['NIL']
                 self.label_list = self.sym_labels + label_list
             else:
-                label_list = ['ART', 'ORG-AFF',
-                              'GEN-AFF', 'PHYS',  'PART-WHOLE']
+                label_list = ['ART', 'ORG-AFF', 'GEN-AFF', 'PHYS',  'PART-WHOLE']
                 self.sym_labels = ['NIL', 'PER-SOC']
                 self.label_list = self.sym_labels + label_list
 
         elif args.data_dir.find('ace04') != -1:
-            self.ner_label_list = ['NIL', 'FAC', 'WEA',
-                                   'LOC', 'VEH', 'GPE', 'ORG', 'PER']
+            self.ner_label_list = ['NIL', 'FAC', 'WEA', 'LOC', 'VEH', 'GPE', 'ORG', 'PER']
 
             if args.no_sym:
-                label_list = ['PER-SOC', 'OTHER-AFF',
-                              'ART', 'GPE-AFF', 'EMP-ORG', 'PHYS']
+                label_list = ['PER-SOC', 'OTHER-AFF', 'ART', 'GPE-AFF', 'EMP-ORG', 'PHYS']
                 self.sym_labels = ['NIL']
                 self.label_list = self.sym_labels + label_list
             else:
@@ -212,8 +208,7 @@ class ACEDataset(Dataset):
                     self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(
                         x[0], x[1])]), (x[2], x[3], std_entity_labels[(x[2], x[3])]), x[4]))
                     if x[4] in self.sym_labels[1:]:
-                        self.golden_labels.add(
-                            ((l_idx, n),  (x[2], x[3]), (x[0], x[1]), x[4]))
+                        self.golden_labels.add(((l_idx, n),  (x[2], x[3]), (x[0], x[1]), x[4]))
                         self.golden_labels_withner.add(((l_idx, n), (x[2], x[3], std_entity_labels[(
                             x[2], x[3])]), (x[0], x[1], std_entity_labels[(x[0], x[1])]), x[4]))
 
@@ -225,8 +220,7 @@ class ACEDataset(Dataset):
                         if x[4] in self.sym_labels[1:]:
                             pos2label[w] = label_map[x[4]]  # bug
                         else:
-                            pos2label[w] = label_map[x[4]] + \
-                                len(label_map) - len(self.sym_labels)
+                            pos2label[w] = label_map[x[4]] + len(label_map) - len(self.sym_labels)
 
                 if not self.evaluate:
                     entities.append((10000, 10000, 'NIL'))  # only for NER
@@ -241,8 +235,7 @@ class ACEDataset(Dataset):
 
                         if self.use_typemarker:
                             l_m = '[unused%d]' % (2 + sub_label)
-                            r_m = '[unused%d]' % (
-                                2 + sub_label + len(self.ner_label_list))
+                            r_m = '[unused%d]' % (2 + sub_label + len(self.ner_label_list))
                         else:
                             l_m = '[unused0]'
                             r_m = '[unused1]'
