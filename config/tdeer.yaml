@@ -11,4 +11,10 @@ loss_weight:
 - 1
 - 1
 - 5
+# 是否使用R-drop训练策略
+is_rdrop: false
+# 是否使用bert所有hidden states融合策略
+hidden_fuse: true
+# 融合倒数后几层的hidden states,最多12层
+hidden_fuse_layers: 5
 

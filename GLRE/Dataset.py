@@ -26,8 +26,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 class GLREDataset(Dataset):
     def __init__(self, args, is_training=True) -> None:
         super().__init__()
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         self.CLS = self.tokenizer.cls_token
         self.SEP = self.tokenizer.sep_token
 
@@ -53,10 +52,8 @@ class GLREDataset(Dataset):
                 self.label2ignore = key
         assert self.label2ignore != -1
         
-        self.word2index = json.load(
-            open(os.path.join(args.data_dir, "word2id.json")))
-        self.n_words, self.word2count = len(
-            self.word2index.keys()), {'<UNK>': 1}
+        self.word2index = json.load(open(os.path.join(args.data_dir, "word2id.json")))
+        self.n_words, self.word2count = len(self.word2index.keys()), {'<UNK>': 1}
 
         self.singletons = []
         self.unk_w_prob = args.unk_w_prob
@@ -373,24 +370,13 @@ class GLREDataset(Dataset):
                 yield item
 
     def subword_tokenize(self, tokens):
-        """Segment each token into subwords while keeping track of
-        token boundaries.
-        Parameters
-        ----------
-        tokens: A sequence of strings, representing input tokens.
-        Returns
-        -------
-        A tuple consisting of:
-            - A list of subwords, flanked by the special symbols required
-                by Bert (CLS and SEP).
-            - An array of indices into the list of subwords, indicating
-                that the corresponding subword is the start of a new
-                token. For example, [1, 3, 4, 7] means that the subwords
-                1, 3, 4, 7 are token starts, while all other subwords
-                (0, 2, 5, 6, 8...) are in or at the end of tokens.
-                This list allows selecting Bert hidden states that
-                represent tokens, which is necessary in sequence
-                labeling.
+        """切分每个token,并保留每个token的边界
+        Args:
+            tokens ([list]): [tokens]
+        Returns:
+            subwords [type]: [description]
+            token_start_idxs: 子词列表中的索引数组，指示相应的子词是新标记的开始。例如，[1, 3, 4, 7] 表示子词1,3,4,7是令牌开始,
+            而所有其他子词 (0,2,5,6,8...)都是token结束。此列表允许选择表示标记的Bert隐藏状态，这在序列标记中是必需的。
         """
         subwords = list(map(self.tokenizer.tokenize, tokens))
         subword_lengths = list(map(len, subwords))
@@ -437,11 +423,13 @@ class GLREDataset(Dataset):
             doc += [sent]
             sens_len.append(len(sent))
         # 子词，取每个token的起始位置
-        subwords, bert_starts = self.subword_tokenize(words)
+        subwords, token_start_idxs = self.subword_tokenize(words)
         # 子词 ids
         bert_token = self.tokenizer.convert_tokens_to_ids(subwords)
         bert_token = np.array(bert_token)
         bert_mask = np.ones(len(bert_token))  # 子词的mask
+        bert_starts = np.zeros((len(bert_token)))
+        bert_starts[token_start_idxs] = 1
 
         # NER
         # ner = [0] * sum(sens_len)
@@ -536,8 +524,7 @@ class GLREDataset(Dataset):
         # DISTANCES
         #######################
         # meshgrid函数就是用两个坐标轴上的点在平面上画网格。如果我们传入三个参数，那么可以用三个一维的坐标轴上的点在三维平面上画网格。
-        xv, yv = np.meshgrid(np.arange(nodes.shape[0]), np.arange(
-            nodes.shape[0]), indexing='ij')  # xv与yv是相互矩阵的转置
+        xv, yv = np.meshgrid(np.arange(nodes.shape[0]), np.arange(nodes.shape[0]), indexing='ij')  # xv与yv是相互矩阵的转置
 
         r_id, c_id = nodes[xv, 5], nodes[yv, 5]  # 取出节点类型,生成xv相同的矩阵
         r_Eid, c_Eid = nodes[xv, 0], nodes[yv, 0]  # 取出节点id
@@ -587,9 +574,7 @@ class GLREDataset(Dataset):
         adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(
             c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)  # in same sentence
         rgcn_adjacency[0] = np.where(
-            np.logical_or(r_id == 1, r_id == 3) & np.logical_or(
-                c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1,
-            rgcn_adjacency[0])
+            np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1,rgcn_adjacency[0])
 
         # entity-mention
         adjacency = np.where((r_id == 0) & (c_id == 1) & (
@@ -688,8 +673,7 @@ def collate_fn(batch, NA_id,NA_NUM, istrain=False):
         # 记录当前batch下前面所有batch已经有的句子数量
         sent_count += len(b['text'])
 
-    new_batch['entities'] = np.concatenate(
-        new_batch['entities'], axis=0)  # 56, 6
+    new_batch['entities'] = np.concatenate(new_batch['entities'], axis=0)  # 56, 6
     new_batch['entities'] = torch.as_tensor(new_batch['entities']).long()
 
     batch_ = [{k: v for k, v in b.items() if (

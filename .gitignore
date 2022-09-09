@@ -1,5 +1,5 @@
 .idea
-test*
+test.ipynb
 __pycache__
 /data/data
 lightning_logs*

@@ -13,12 +13,12 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="tdeer",
-                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre"])
+    parser.add_argument('--model_type', default="glre",
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre","plmarker"])
     parser.add_argument('--pretrain_path', type=str,
-                        default="./chineserobertawwmext", help='定义预训练模型路径')
+                        default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str,
-                        default="data/data/manufacture", help='定义数据集路径')
+                        default="data/data/DocRED", help='定义数据集路径')
     parser.add_argument('--lr', default=5e-4,
                         type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=100, type=int,
@@ -33,7 +33,6 @@ def parser_args():
     parser.add_argument('--decay_rate', default=0.999, type=float,
                         help='StepLR scheduler 相关参数')
     parser.add_argument('--decay_steps', default=100,type=int, help='StepLR scheduler 相关参数')
-
     parser.add_argument('--T_mult', default=1.0, type=float,
                         help='CosineAnnealingWarmRestarts scheduler 相关参数')
     parser.add_argument('--rewarm_epoch_num', default=2,type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
@@ -67,8 +66,7 @@ def main():
     elif args.model_type == "tplinker":
         from TPlinker import TPlinkerPytochLighting, TPlinkerDataset, HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
 
-        tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased", add_special_tokens=False, do_lower_case=True)
+        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path, add_special_tokens=False, do_lower_case=True)
         max_length = statistics_text_length(args.train_file, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_seq_len = max_length+2
@@ -101,8 +99,7 @@ def main():
 
     elif args.model_type == "prgc":
         from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
-        tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         filename =os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
@@ -121,8 +118,7 @@ def main():
 
     elif args.model_type == "spn4re":
         from SPN4RE import Spn4REPytochLighting, Spn4REDataset, collate_fn
-        tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         filename =os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
@@ -178,6 +174,10 @@ def main():
         args.index2rel = train_dataset.index2rel
         model = GLREModuelPytochLighting(args)
 
+    elif args.model_type == "plmarker":
+        from PLMarker import PLMakerPytochLighting, PLMarkerDataset, collate_fn
+        train_dataset = PLMarkerDataset(args, is_training=True)
+
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
 
@@ -202,7 +202,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=20,
-                         gpus=[1],
+                         gpus=[0],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation

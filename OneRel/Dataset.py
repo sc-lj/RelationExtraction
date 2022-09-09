@@ -22,8 +22,7 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
 class OneRelDataset(Dataset):
     def __init__(self, args, is_training):
-        self.tokenizer = BertTokenizerFast.from_pretrained(
-            args.pretrain_path, cache_dir="./bertbaseuncased")
+        self.tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
         with open(os.path.join(args.data_dir, "rel2id.json"), 'r') as f:
             relation = json.load(f)
         self.rel2id = relation[1]

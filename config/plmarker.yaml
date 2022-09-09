@@ -14,3 +14,6 @@ att_right: false
 att_left: false
 #
 no_sym: false
+
+# 对所有的关系组合进行随机shuffle
+shuffle: true
