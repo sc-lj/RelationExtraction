@@ -151,6 +151,7 @@ class TDEER(BertPreTrainedModel):
         self.hidden_size = hidden_size
         # 对bert的所有hidden states进行加权平均
         self.hidden_weight = nn.Linear(self.args.hidden_fuse_layers,1)
+        self.rel_sub_fuse = nn.Linear(2*hidden_size,hidden_size)
         self.init_weights()
 
     def relModel(self, pooler_output):
@@ -201,7 +202,11 @@ class TDEER(BertPreTrainedModel):
             rel_feature = rel_feature.transpose(1, 0)
             # [rel_num,1,hidden_size]
             sub_feature = sub_feature.transpose(1, 0)
-        feature = rel_feature+sub_feature
+        # feature = rel_feature+sub_feature
+        # 将关系表征，subject表征进行线性变换
+        feature = torch.cat([rel_feature,sub_feature],dim=-1)
+        feature = self.rel_sub_fuse(feature)
+
         # [batch_size,seq_len,hidden_size]
         hidden_size = self.conditionlayernormal(last_hidden_size, feature)  
         # [batch_size,seq_len,hidden_size]
@@ -314,34 +319,30 @@ class TDEERPytochLighting(pl.LightningModule):
         pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head, obj_hidden, last_hidden_size = output
 
         loss = 0
-        rel_loss = self.rel_loss(pred_rels, batch_rels) + \
-            self.focal_loss(pred_rels, batch_rels)
+        rel_loss = self.rel_loss(pred_rels, batch_rels) 
+        rel_loss += self.focal_loss(pred_rels, batch_rels)
         loss += self.loss_weight[0]*rel_loss
 
         batch_text_mask = batch_text_masks.reshape(-1, 1)
 
         pred_entity_heads = pred_entity_heads.reshape(-1, 2)
         batch_entity_heads = batch_entity_heads.reshape(-1, 2)
-        entity_head_loss = self.entity_head_loss(
-            pred_entity_heads, batch_entity_heads)
-        entity_head_loss = (
-            entity_head_loss*batch_text_mask).sum()/batch_text_mask.sum()
+        entity_head_loss = self.entity_head_loss(pred_entity_heads, batch_entity_heads)
+        entity_head_loss = (entity_head_loss*batch_text_mask).sum()/batch_text_mask.sum()
         loss += self.loss_weight[1]*entity_head_loss
 
         pred_entity_tails = pred_entity_tails.reshape(-1, 2)
         batch_entity_tails = batch_entity_tails.reshape(-1, 2)
-        entity_tail_loss = self.entity_tail_loss(
-            pred_entity_tails, batch_entity_tails)
-        entity_tail_loss = (
-            entity_tail_loss*batch_text_mask).sum()/batch_text_mask.sum()
+        entity_tail_loss = self.entity_tail_loss(pred_entity_tails, batch_entity_tails)
+        entity_tail_loss = (entity_tail_loss*batch_text_mask).sum()/batch_text_mask.sum()
         loss += self.loss_weight[2]*entity_tail_loss
 
         pred_obj_head = pred_obj_head.reshape(-1, 1)
         batch_sample_obj_heads = batch_sample_obj_heads.reshape(-1, 1)
-        obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads) + \
-            self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
+        obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads) 
+        obj_loss += self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
-        loss += self.loss_weight[3]*entity_tail_loss
+        loss += self.loss_weight[3]*obj_loss
         return loss,obj_hidden, last_hidden_size
 
     def training_step(self, batch, step_idx):
@@ -429,8 +430,7 @@ class TDEERPytochLighting(pl.LightningModule):
             triple_set = set()
             if len(subjects):
                 # translating decoding
-                relations = np.where(relations_logits[index] > self.threshold)[
-                    0].tolist()
+                relations = np.where(relations_logits[index] > self.threshold)[0].tolist()
                 if relations:
                     batch_sub_heads = []
                     batch_sub_tails = []
@@ -512,8 +512,7 @@ class TDEERPytochLighting(pl.LightningModule):
         self.epoch += 1
         real_acc = round(correct/predict, 5) if predict != 0 else 0
         real_recall = round(correct/total, 5)
-        real_f1 = round(2*(real_recall*real_acc)/(real_recall +
-                        real_acc), 5) if (real_recall+real_acc) != 0 else 0
+        real_f1 = round(2*(real_recall*real_acc)/(real_recall + real_acc), 5) if (real_recall+real_acc) != 0 else 0
         self.log("tot", total, prog_bar=True)
         self.log("cor", correct, prog_bar=True)
         self.log("pred", predict, prog_bar=True)
@@ -532,11 +531,9 @@ class TDEERPytochLighting(pl.LightningModule):
             only_sub_rel_pred += len(set(pred))
             only_sub_rel_tot += len(set(target))
 
-        real_acc = round(only_sub_rel_cor/only_sub_rel_pred,
-                         5) if only_sub_rel_pred != 0 else 0
+        real_acc = round(only_sub_rel_cor/only_sub_rel_pred,5) if only_sub_rel_pred != 0 else 0
         real_recall = round(only_sub_rel_cor/only_sub_rel_tot, 5)
-        real_f1 = round(2*(real_recall*real_acc)/(real_recall +
-                        real_acc), 5) if (real_recall+real_acc) != 0 else 0
+        real_f1 = round(2*(real_recall*real_acc)/(real_recall + real_acc), 5) if (real_recall+real_acc) != 0 else 0
         self.log("sr_tot", only_sub_rel_tot, prog_bar=True)
         self.log("sr_cor", only_sub_rel_cor, prog_bar=True)
         self.log("sr_pred", only_sub_rel_pred, prog_bar=True)

@@ -221,10 +221,8 @@ class PLMakerPytochLighting(pl.LightningModule):
                 obj = m2s[j]
                 ner_label = self.id2ner[ner_preds[i,j]]
                 scores[(index[0], index[1])][( (sub[0], sub[1]), (obj[0], obj[1]))] = (logits[i, j].tolist(), ner_label)
-        
-        
         return scores
-    
+
     def validation_epoch_end(self, outputs) :
         scores = {}
         for output in outputs:
@@ -259,8 +257,7 @@ class PLMakerPytochLighting(pl.LightningModule):
                     for j in range(len(v2)):
                         v1[j] += v2[j]
                 else:
-                    assert ( False )
-
+                    assert (False)
                 if v1_ner_label=='NIL':
                     continue
 
@@ -270,9 +267,7 @@ class PLMakerPytochLighting(pl.LightningModule):
                         pred_label = pred_label - self.num_label + len(self.sym_labels)
                         m1, m2 = m2, m1
                         v1_ner_label, v2_ner_label = v2_ner_label, v1_ner_label
-
                     pred_score = v1[pred_label]
-
                     sentence_results.append( (pred_score, m1, m2, pred_label, v1_ner_label, v2_ner_label) )
 
             sentence_results.sort(key=lambda x: -x[0])
