@@ -1,5 +1,7 @@
+# 输入序列的长度
+max_seq_length: 384
 # 每次输入的pair长度
-max_pair_length: 64
+max_pair_length: 16
 # 交叉损失的权重
 alpha: 1.0
 # 使用使用实体类型marker
@@ -16,3 +18,15 @@ att_left: false
 no_sym: false
 # 对所有的关系组合进行随机shuffle
 shuffle: true
+# 是否对subject，object，[MASK]使用预训练模型原有的embedding进行初始化
+lminit: false
+# bertnonersub,bertsub
+m_type: bertsub
+# 权重衰减
+weight_decay: 0.0
+warmup_steps: -1
+
+eval_logsoftmax: true
+eval_softmax: false
+use_ner_results: true
+

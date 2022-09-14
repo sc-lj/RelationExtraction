@@ -7,6 +7,7 @@ import pytorch_lightning as pl
 from collections import defaultdict
 from torch.nn import CrossEntropyLoss
 from torch.optim import AdamW
+import torch.nn.functional as F
 from transformers import get_linear_schedule_with_warmup
 from transformers.models.bert.modeling_bert import BertPreTrainedModel, BertModel
 
@@ -31,7 +32,7 @@ class BertForACEBothOneDropoutSubNoNer(BertPreTrainedModel):
         self.init_weights()
 
     def forward(self, input_ids=None, attention_mask=None, mentions=None, token_type_ids=None, position_ids=None,
-                head_mask=None, inputs_embeds=None, sub_positions=None, labels=None, ner_labels=None):
+                head_mask=None, inputs_embeds=None, sub_positions=None):
         outputs = self.bert(
             input_ids,
             attention_mask=attention_mask,
@@ -85,8 +86,8 @@ class BertForACEBothOneDropoutSub(BertPreTrainedModel):
 
         self.init_weights()
 
-    def forward(self, input_ids=None, attention_mask=None, mentions=None, token_type_ids=None, position_ids=None, head_mask=None,
-                inputs_embeds=None, sub_positions=None, labels=None, ner_labels=None,):
+    def forward(self, input_ids=None, attention_mask=None, token_type_ids=None, position_ids=None, head_mask=None,
+                inputs_embeds=None, sub_positions=None):
 
         outputs = self.bert(
             input_ids,
@@ -121,27 +122,58 @@ class BertForACEBothOneDropoutSub(BertPreTrainedModel):
 
 
 class PLMakerPytochLighting(pl.LightningModule):
-    def __init__(self, args) -> None:
+    def __init__(self, args,tokenizer) -> None:
         super().__init__()
         self.golden_labels = args.golden_labels
         self.golden_labels_withner = args.golden_labels_withner
         self.ner_golden_labels = args.ner_golden_labels
         self.global_predicted_ners = args.global_predicted_ners
+        self.tot_recall = args.tot_recall 
+        # 删除args中相关的属性，不用保存在参数列表中
         args.__delattr__("golden_labels")
         args.__delattr__("golden_labels_withner")
         args.__delattr__("global_predicted_ners")
         args.__delattr__("ner_golden_labels")
+        args.__delattr__("tot_recall")
 
         self.args = args
         self.ner2id = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
         self.id2ner = {v:k for k,v in self.ner2id.items()}
-        self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path,args)
-        self.loss_fct_re = CrossEntropyLoss(ignore_index=-1,  weight=self.alpha)
+        self.num_ner_labels = args.num_ner_labels
+        self.num_labels = args.num_labels
+
+        if args.m_type == "bertsub":
+            self.model = BertForACEBothOneDropoutSub.from_pretrained(args.pretrain_path,args)
+        elif args.m_type == "bertnonersub":
+            self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path,args)
+        else:
+            raise ValueError(f"错误的{args.m_type},请填写bertnonersub,bertsub")
+        self.loss_fct_re = CrossEntropyLoss(ignore_index=-1)
         self.loss_fct_ner = CrossEntropyLoss(ignore_index=-1)
         relations = json.load(open(os.path.join(args.data_dir, 'rel2id.json')))
         self.relation_list = relations['relation']
         self.rel2index = {label:i for i,label in enumerate(self.relation_list)}
         self.num_label = len(self.relation_list)
+        if args.lminit:
+            word_embeddings = self.model.bert.embeddings.word_embeddings.weight.data
+            subs,sube = 1, 2
+            objs,obje = 3, 4
+            subject_id = tokenizer.encode('subject', add_special_tokens=False)
+            assert(len(subject_id)==1)
+            subject_id = subject_id[0]
+            object_id = tokenizer.encode('object', add_special_tokens=False)
+            assert(len(object_id)==1)
+            object_id = object_id[0]
+
+            mask_id = tokenizer.encode('[MASK]', add_special_tokens=False)
+            assert(len(mask_id)==1)
+            mask_id = mask_id[0]
+            word_embeddings[subs].copy_(word_embeddings[mask_id])
+            word_embeddings[sube].copy_(word_embeddings[subject_id])
+
+            word_embeddings[objs].copy_(word_embeddings[mask_id])  
+            word_embeddings[obje].copy_(word_embeddings[object_id])
+            self.model.bert.embeddings.word_embeddings.weight.data = word_embeddings
 
         # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
         if args.no_sym: # 不对特定关系采用双向识别
@@ -158,16 +190,11 @@ class PLMakerPytochLighting(pl.LightningModule):
         inputs = {'input_ids':      batch[0],
                   'attention_mask': batch[1],
                   'position_ids':   batch[2],
+                  'sub_positions': batch[3]
                   }
 
         labels = batch[5]
         ner_labels = batch[6]
-
-        inputs['sub_positions'] = batch[3]
-        if self.args.model_type.find('span') != -1:
-            inputs['mention_pos'] = batch[4]
-        if self.args.model_type.endswith('bertonedropoutnersub'):
-            inputs['sub_ner_labels'] = batch[7]
 
         re_prediction_scores, ner_prediction_scores = self.model(**inputs)
         re_loss = self.loss_fct_re(re_prediction_scores.view(-1, self.num_labels), labels.view(-1))
@@ -182,9 +209,10 @@ class PLMakerPytochLighting(pl.LightningModule):
         inputs = {'input_ids':      batch[0],
                   'attention_mask': batch[1],
                   'position_ids':   batch[2],
+                  'sub_positions': batch[3]
                   }
         scores = defaultdict(dict)
-        # ner_pred = not args.model_type.endswith('noner')
+        # ner_pred = not args.m_type.endswith('noner')
         example_subs = set([])
 
         subs = batch[-2]
@@ -192,21 +220,15 @@ class PLMakerPytochLighting(pl.LightningModule):
         indexs = batch[-3]
         ner_labels = batch[6]
 
-        inputs['sub_positions'] = batch[3]
-        if self.args.model_type.find('span') != -1:
-            inputs['mention_pos'] = batch[4]
-        if self.args.model_type.endswith('bertonedropoutnersub'):
-            inputs['sub_ner_labels'] = batch[7]
-
         re_prediction_scores, ner_prediction_scores = self.model(**inputs)
 
         if self.args.eval_logsoftmax:  # perform a bit better
-            logits = torch.nn.functional.log_softmax(re_prediction_scores, dim=-1)
+            logits = F.log_softmax(re_prediction_scores, dim=-1)
 
         elif self.args.eval_softmax:
-            logits = torch.nn.functional.softmax(re_prediction_scores, dim=-1)
+            logits = F.softmax(re_prediction_scores, dim=-1)
 
-        if self.args.use_ner_results or self.args.model_type.endswith('nonersub'):                 
+        if self.args.use_ner_results or self.args.m_type.endswith('nonersub'):                 
             ner_preds = ner_labels
         else:
             ner_preds = torch.argmax(ner_prediction_scores, dim=-1)
@@ -256,8 +278,8 @@ class PLMakerPytochLighting(pl.LightningModule):
                     v2 = v2[ : len(self.sym_labels)] + v2[self.num_label:] + v2[len(self.sym_labels) : self.num_label]
                     for j in range(len(v2)):
                         v1[j] += v2[j]
-                else:
-                    assert (False)
+                # else:
+                #     assert (False)
                 if v1_ner_label=='NIL':
                     continue
 
@@ -268,7 +290,7 @@ class PLMakerPytochLighting(pl.LightningModule):
                         m1, m2 = m2, m1
                         v1_ner_label, v2_ner_label = v2_ner_label, v1_ner_label
                     pred_score = v1[pred_label]
-                    sentence_results.append( (pred_score, m1, m2, pred_label, v1_ner_label, v2_ner_label) )
+                    sentence_results.append((pred_score, m1, m2, pred_label, v1_ner_label, v2_ner_label))
 
             sentence_results.sort(key=lambda x: -x[0])
             no_overlap = []
@@ -280,7 +302,6 @@ class PLMakerPytochLighting(pl.LightningModule):
                 return False
 
             output_preds = []
-
             for item in sentence_results:
                 m1 = item[1]
                 m2 = item[2]
@@ -292,15 +313,10 @@ class PLMakerPytochLighting(pl.LightningModule):
                     if item[3]==x[3] and (is_overlap(m1, _m1) and is_overlap(m2, _m2)):
                         overlap = True
                         break
-
                 pred_label = self.relation_list[item[3]]
-
-
                 if not overlap:
                     no_overlap.append(item)
-
             pos2ner = {}
-
             for item in no_overlap:
                 m1 = item[1]
                 m2 = item[2]
@@ -342,6 +358,29 @@ class PLMakerPytochLighting(pl.LightningModule):
                     ner_cor += 1
                 ner_tot_pred += 1
         
+        ner_p = ner_cor / ner_tot_pred if ner_tot_pred > 0 else 0 
+        ner_r = ner_cor / len(self.ner_golden_labels) 
+        ner_f1 = 2 * (ner_p * ner_r) / (ner_p + ner_r) if ner_cor > 0 else 0.0
+
+        p = round(cor / tot_pred,5) if tot_pred > 0 else 0 
+        recall = round(cor / self.tot_recall,5)
+        f1 = round(2 * (p * recall) / (p + recall),5) if cor > 0 else 0.0
+        assert(self.tot_recall==len(self.golden_labels))
+
+        p_with_ner = cor_with_ner / tot_pred if tot_pred > 0 else 0 
+        r_with_ner = cor_with_ner / self.tot_recall
+        assert(self.tot_recall==len(self.golden_labels_withner))
+        f1_with_ner = 2 * (p_with_ner * r_with_ner) / (p_with_ner + r_with_ner) if cor_with_ner > 0 else 0.0
+
+        results = {'f1':  f1,  'f1_with_ner': f1_with_ner, 'ner_f1': ner_f1}
+
+        self.log("tot", float(self.tot_recall), prog_bar=True)
+        self.log("cor", float(cor), prog_bar=True)
+        self.log("pred", float(tot_pred), prog_bar=True)
+        self.log("recall", float(recall), prog_bar=True)
+        self.log("acc", float(p), prog_bar=True)
+        self.log("f1", float(f1), prog_bar=True)
+
 
     def configure_optimizers(self):
         no_decay = ['bias', 'LayerNorm.weight']
@@ -352,15 +391,11 @@ class PLMakerPytochLighting(pl.LightningModule):
                 nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
 
-        optimizer = AdamW(optimizer_grouped_parameters,
-                          lr=self.args.learning_rate, eps=self.args.adam_epsilon)
+        optimizer = AdamW(optimizer_grouped_parameters, lr=self.args.lr)
         if self.args.warmup_steps == -1:
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer, num_warmup_steps=int(0.1*self.args.t_total), num_training_steps=self.args.t_total
-            )
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=int(0.1*self.args.t_total), num_training_steps=self.args.t_total)
         else:
-            scheduler = get_linear_schedule_with_warmup(
-                optimizer, num_warmup_steps=self.args.warmup_steps, num_training_steps=self.args.t_total
-            )
+            scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.args.warmup_steps, num_training_steps=self.args.t_total)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
+

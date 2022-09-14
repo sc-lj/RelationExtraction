@@ -513,12 +513,12 @@ class TDEERPytochLighting(pl.LightningModule):
         real_acc = round(correct/predict, 5) if predict != 0 else 0
         real_recall = round(correct/total, 5)
         real_f1 = round(2*(real_recall*real_acc)/(real_recall + real_acc), 5) if (real_recall+real_acc) != 0 else 0
-        self.log("tot", total, prog_bar=True)
-        self.log("cor", correct, prog_bar=True)
-        self.log("pred", predict, prog_bar=True)
-        self.log("recall", real_recall, prog_bar=True)
-        self.log("acc", real_acc, prog_bar=True)
-        self.log("f1", real_f1, prog_bar=True)
+        self.log("tot", float(total), prog_bar=True)
+        self.log("cor", float(correct), prog_bar=True)
+        self.log("pred", float(predict), prog_bar=True)
+        self.log("recall", float(real_recall), prog_bar=True)
+        self.log("acc", float(real_acc), prog_bar=True)
+        self.log("f1", float(real_f1), prog_bar=True)
 
         only_sub_rel_cor = 0
         only_sub_rel_pred = 0

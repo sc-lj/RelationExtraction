@@ -1,9 +1,9 @@
 {
     "NIL":0,
-    "OtherScientificTerm":1, 
-    "Generic":2, 
-    "Task":3, 
-    "Method":4, 
-    "Metric":5, 
-    "Material":6
+    "Method":1, 
+    "OtherScientificTerm":2,
+    "Task":3,
+    "Generic":4,
+    "Material":5,
+    "Metric":6
 }

@@ -68,8 +68,6 @@ class ConditionalLayerNorm(nn.Module):
         nn.init.zeros_(self.bias_dense.weight)
 
     def forward(self, inputs, cond=None):
-        assert cond is not None, 'Conditional tensor need to input when use conditional layer norm'
-        # cond = torch.unsqueeze(cond, 1)  # (b, 1, h*2)
         weight = self.weight_dense(cond) + self.weight  # (b, 1, h)
         bias = self.bias_dense(cond) + self.bias  # (b, 1, h)
         mean = torch.mean(inputs, dim=-1, keepdim=True)  # （b, s, 1）
@@ -135,6 +133,8 @@ class PRGC(BertPreTrainedModel):
         # relation judgement
         self.rel_judgement = MultiNonLinearClassifier(config.hidden_size, self.rel_num, params.drop_prob)
         self.rel_embedding = nn.Embedding(self.rel_num, config.hidden_size)
+        self.intermediate_label_layer = nn.Linear(config.hidden_size,2*config.hidden_size)
+        self.activate_layer = nn.ReLU6()
         self.params = params
         self.init_weights()
 
@@ -243,7 +243,7 @@ class PRGC(BertPreTrainedModel):
             # (sum(x_i), seq_len, h)
             sequence_output = torch.stack(pos_seq_output, dim=0)
             # (sum(x_i), seq_len)
-            attention_mask = torch.stack(pos_attention_mask, dim=0)
+            pos_attention_mask = torch.stack(pos_attention_mask, dim=0)
             # (sum(x_i),)
             potential_rels = torch.stack(pos_potential_rel, dim=0)
         else:
@@ -269,6 +269,14 @@ class PRGC(BertPreTrainedModel):
             # 采用同一个头抽取关系中subject和object字段
             # (bs/sum(x_i), seq_len, tag_size)
             output_sub, output_obj = self.sequence_tagging_sum(decode_input)
+        elif self.emb_fusion == "normal":
+            # (bs/sum(x_i), seq_len, h)
+            decode_input = self.cond_layer(sequence_output,rel_emb)*pos_attention_mask
+            # decode_input = self.intermediate_label_layer(decode_input)
+            decode_input = self.activate_layer(decode_input)
+            # (bs/sum(x_i), seq_len, tag_size)
+            output_sub, output_obj = self.sequence_tagging_sum(decode_input)
+
         return output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,xi,pred_rels
 
 
@@ -297,14 +305,12 @@ class PRGCPytochLighting(pl.LightningModule):
         input_ids, attention_mask, seq_tags, relation, corres_tags, rel_tags = batches
         bs = input_ids.shape[0]
         # compute model output and loss
-        output_sub, output_obj,corres_mask,rel_pred,pos_attention_mask,corres_pred,_,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
+        output_sub, output_obj,corres_mask,rel_pred,corres_pred,_,_ = self.model(input_ids, attention_mask=attention_mask,potential_rels=relation)
         # calculate loss
-        pos_attention_mask = pos_attention_mask.view(-1)
+        pos_attention_mask = attention_mask.view(-1)
         # sequence label loss
-        loss_seq_sub = (self.ent_loss_func(output_sub.view(-1, self.seq_tag_size),
-                                    seq_tags[:, 0, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
-        loss_seq_obj = (self.ent_loss_func(output_obj.view(-1, self.seq_tag_size),
-                                    seq_tags[:, 1, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
+        loss_seq_sub = (self.ent_loss_func(output_sub.view(-1, self.seq_tag_size),seq_tags[:, 0, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
+        loss_seq_obj = (self.ent_loss_func(output_obj.view(-1, self.seq_tag_size),seq_tags[:, 1, :].reshape(-1)) * pos_attention_mask).sum() / pos_attention_mask.sum()
         loss_seq = (loss_seq_sub + loss_seq_obj) / 2
         # init
         corres_pred = corres_pred.view(bs, -1)
@@ -324,7 +330,7 @@ class PRGCPytochLighting(pl.LightningModule):
     def validation_step(self,batches,batch_idx):
         texts, input_ids, attention_mask, triples, input_tokens = batches
         # compute model output and loss
-        output_sub, output_obj,corres_mask,_,_,corres_pred,xi,pred_rels = self.model(input_ids, attention_mask=attention_mask)
+        output_sub, output_obj,corres_mask,_,corres_pred,xi,pred_rels = self.model(input_ids, attention_mask=attention_mask)
         # (sum(x_i), seq_len)
         pred_seq_sub = torch.argmax(torch.softmax(output_sub, dim=-1), dim=-1)
         pred_seq_obj = torch.argmax(torch.softmax(output_obj, dim=-1), dim=-1)
@@ -389,27 +395,16 @@ class PRGCPytochLighting(pl.LightningModule):
         writer.write(json.dumps(error_result,ensure_ascii=False) + '\n')
         writer.close()
 
-        metrics = self.get_metrics(correct_num, predict_num, gold_num)
-        self.log("f1",metrics["f1"], prog_bar=True)
-        self.log("acc",metrics["precision"], prog_bar=True)
-        self.log("recall",metrics["recall"], prog_bar=True)
-        self.log("gold_num",metrics["gold_num"], prog_bar=True)
-        self.log("predict_num",metrics["predict_num"], prog_bar=True)
-        self.log("correct_num",metrics["correct_num"], prog_bar=True)
-        self.epoch += 1
-
-    def get_metrics(self,correct_num, predict_num, gold_num):
         p = correct_num / predict_num if predict_num > 0 else 0
         r = correct_num / gold_num if gold_num > 0 else 0
         f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
-        return {
-            'correct_num': correct_num,
-            'predict_num': predict_num,
-            'gold_num': gold_num,
-            'precision': p,
-            'recall': r,
-            'f1': f1
-        }
+        self.log("f1",f1, prog_bar=True)
+        self.log("acc",p, prog_bar=True)
+        self.log("recall",r, prog_bar=True)
+        self.log("gold_num",gold_num, prog_bar=True)
+        self.log("predict_num",predict_num, prog_bar=True)
+        self.log("correct_num",correct_num, prog_bar=True)
+        self.epoch += 1
 
     def span2str(self,triples, tokens):
         def _concat(token_list):

@@ -14,8 +14,7 @@ class PLMarkerDataset(Dataset):
         self.max_pair_length = args.max_pair_length
         self.max_entity_length = self.max_pair_length*2
         self.use_typemarker = args.use_typemarker
-        self.local_rank = args.local_rank
-        self.model_type = args.model_type
+        self.model_type = args.m_type
         self.no_sym = args.no_sym
         self.args = args
 
@@ -48,6 +47,7 @@ class PLMarkerDataset(Dataset):
         self.cls_token = self.tokenizer.cls_token
         self.sep_token = self.tokenizer.sep_token
 
+        # {(样本id, 句子id):[(实体start, 实体end, 实体label)]}
         self.global_predicted_ners = {}
         self.initialize(lines)
 
@@ -61,8 +61,11 @@ class PLMarkerDataset(Dataset):
         self.ner_tot_recall = 0
         self.tot_recall = 0
         self.data = []
-        self.ner_golden_labels = set([])
+        # ((样本id, 句子id), (实体start, 实体end), 实体label))
+        self.ner_golden_labels = set([]) 
+        # ((样本id, 句子id), (sub_start,sub_end), (obj_start,obj_end), 关系label))
         self.golden_labels = set([])
+        # ((样本id, 句子id), (sub_start,sub_end,sub_token), (obj_start,obj_end,obj_token), 关系label))
         self.golden_labels_withner = set([])
         maxR = 0
         maxL = 0
@@ -76,8 +79,10 @@ class PLMarkerDataset(Dataset):
 
             std_ners = data['ner']
             relations = data['relations']
+            # 统计所有关系的数量
             for sentence_relation in relations:
                 for x in sentence_relation:
+                    # 判断标签是否在定义的对称关系中
                     if x[4] in self.sym_labels[1:]:
                         self.tot_recall += 2
                     else:
@@ -86,6 +91,7 @@ class PLMarkerDataset(Dataset):
             sentence_boundaries = [0]
             words = []
             L = 0
+            # 统计每个句子的前后边界
             for i in range(len(sentences)):
                 L += len(sentences[i])
                 sentence_boundaries.append(L)
@@ -93,8 +99,10 @@ class PLMarkerDataset(Dataset):
 
             tokens = [tokenize_word(w) for w in words]
             subwords = [w for li in tokens for w in li]
-            maxL = max(maxL, len(subwords))
+            maxL = max(maxL, len(subwords)) # 子token的最大长度
+            # 子token的边界
             token2subword = [0] + list(itertools.accumulate(len(li) for li in tokens))
+            # 每句话的子token长度集合
             subword_sentence_boundaries = [sum(len(li) for li in tokens[:p]) for p in sentence_boundaries]
             for n in range(len(subword_sentence_boundaries) - 1):
                 sentence_ners = ners[n]
@@ -106,48 +114,44 @@ class PLMarkerDataset(Dataset):
                     std_entity_labels[(start, end)] = label
                     self.ner_golden_labels.add(((l_idx, n), (start, end), label))
                 self.global_predicted_ners[(l_idx, n)] = list(sentence_ners)
+                
+                # 取当前句子及其后面一句，组合成一个pair句子输入
                 doc_sent_start, doc_sent_end = subword_sentence_boundaries[n: n + 2]
                 left_length = doc_sent_start
                 right_length = len(subwords) - doc_sent_end
                 sentence_length = doc_sent_end - doc_sent_start
                 half_context_length = int((max_num_subwords - sentence_length) / 2)
 
+                # 对pair句子长度短于max_num_subwords，进行左右补齐
                 if sentence_length < max_num_subwords:
                     if left_length < right_length:
-                        left_context_length = min(
-                            left_length, half_context_length)
-                        right_context_length = min(
-                            right_length, max_num_subwords - left_context_length - sentence_length)
+                        left_context_length = min(left_length, half_context_length)
+                        right_context_length = min(right_length, max_num_subwords - left_context_length - sentence_length)
                     else:
-                        right_context_length = min(
-                            right_length, half_context_length)
-                        left_context_length = min(
-                            left_length, max_num_subwords - right_context_length - sentence_length)
+                        right_context_length = min(right_length, half_context_length)
+                        left_context_length = min(left_length, max_num_subwords - right_context_length - sentence_length)
 
                 doc_offset = doc_sent_start - left_context_length
                 target_tokens = subwords[doc_offset: doc_sent_end + right_context_length]
                 target_tokens = [self.cls_token] + target_tokens[: self.max_seq_length - 4] + [self.sep_token]
                 assert(len(target_tokens) <= self.max_seq_length - 2)
 
+                # {(sub_start,sub_end,obj_start,obj_end):relation}
                 pos2label = {}
                 for x in sentence_relations:
+                    # sub_start,sub_end,obj_start,obj_end
                     pos2label[(x[0], x[1], x[2], x[3])] = self.rel2index[x[4]]
-                    self.golden_labels.add(
-                        ((l_idx, n), (x[0], x[1]), (x[2], x[3]), x[4]))
-                    self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(
-                        x[0], x[1])]), (x[2], x[3], std_entity_labels[(x[2], x[3])]), x[4]))
-                    if x[4] in self.sym_labels[1:]:
-                        self.golden_labels.add(
-                            ((l_idx, n),  (x[2], x[3]), (x[0], x[1]), x[4]))
-                        self.golden_labels_withner.add(((l_idx, n), (x[2], x[3], std_entity_labels[(
-                            x[2], x[3])]), (x[0], x[1], std_entity_labels[(x[0], x[1])]), x[4]))
+                    self.golden_labels.add(((l_idx, n), (x[0], x[1]), (x[2], x[3]), x[4]))
+                    self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(x[0], x[1])]), (x[2], x[3], std_entity_labels[(x[2], x[3])]), x[4]))
+                    if x[4] in self.sym_labels[1:]: # 对于关系在定义的对称关系中的，sub和obj进行对调
+                        self.golden_labels.add(((l_idx, n),  (x[2], x[3]), (x[0], x[1]), x[4]))
+                        self.golden_labels_withner.add(((l_idx, n), (x[2], x[3], std_entity_labels[(x[2], x[3])]), (x[0], x[1], std_entity_labels[(x[0], x[1])]), x[4]))
 
                 entities = list(sentence_ners)
-
                 for x in sentence_relations:
                     w = (x[2], x[3], x[0], x[1])
                     if w not in pos2label:
-                        if x[4] in self.sym_labels[1:]:
+                        if x[4] in self.sym_labels[1:]: # 对于关系在定义的对称关系中的，sub和obj进行对调，保存其关系
                             pos2label[w] = self.rel2index[x[4]]  # bug
                         else:
                             pos2label[w] = self.rel2index[x[4]] + len(self.rel2index) - len(self.sym_labels)
@@ -200,12 +204,12 @@ class PLMarkerDataset(Dataset):
                             right += 1
                             if obj[1] > sub[1]:
                                 right += 1
-
+                        # 默认关系为NIL
                         label = pos2label.get((sub[0], sub[1], obj[0], obj[1]), 0)
 
                         if right >= self.max_seq_length-1:
                             continue
-
+                        # ((实体stat，实体end,实体类型))
                         cur_ins.append(((left, right, self.type2index[obj_label]), label, obj))
 
                     maxR = max(maxR, len(cur_ins))
@@ -234,30 +238,20 @@ class PLMarkerDataset(Dataset):
         input_ids = self.tokenizer.convert_tokens_to_ids(entry['sentence'])
 
         L = len(input_ids)
-        input_ids += [self.tokenizer.pad_token_id] * \
-            (self.max_seq_length - len(input_ids))
+        input_ids += [self.tokenizer.pad_token_id] * (self.max_seq_length - len(input_ids))
 
         attention_mask = torch.zeros((self.max_entity_length+self.max_seq_length,
                                      self.max_entity_length+self.max_seq_length), dtype=torch.int64)
         attention_mask[:L, :L] = 1
 
-        if self.model_type.startswith('albert'):
-            input_ids = input_ids + [30002] * (len(entry['examples'])) + [
-                self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))
-            input_ids = input_ids + [30003] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (
-                self.max_pair_length - len(entry['examples']))  # for debug
-        else:
-            input_ids = input_ids + [3] * (len(entry['examples'])) + [
-                self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))
-            input_ids = input_ids + [4] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (
-                self.max_pair_length - len(entry['examples']))  # for debug
+        input_ids = input_ids + [3] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))
+        input_ids = input_ids + [4] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))  # for debug
 
         labels = []
         ner_labels = []
         mention_pos = []
         mention_2 = []
-        position_ids = list(range(self.max_seq_length)) + \
-            [0] * self.max_entity_length
+        position_ids = list(range(self.max_seq_length)) + [0] * self.max_entity_length
         num_pair = self.max_pair_length
 
         for x_idx, obj in enumerate(entry['examples']):
@@ -294,11 +288,9 @@ class PLMarkerDataset(Dataset):
 
         pair_L = len(entry['examples'])
         if self.args.att_left:
-            attention_mask[self.max_seq_length: self.max_seq_length +
-                           pair_L, self.max_seq_length: self.max_seq_length+pair_L] = 1
+            attention_mask[self.max_seq_length: self.max_seq_length + pair_L, self.max_seq_length: self.max_seq_length+pair_L] = 1
         if self.args.att_right:
-            attention_mask[self.max_seq_length+num_pair: self.max_seq_length+num_pair +
-                           pair_L, self.max_seq_length+num_pair: self.max_seq_length+num_pair+pair_L] = 1
+            attention_mask[self.max_seq_length+num_pair: self.max_seq_length+num_pair + pair_L, self.max_seq_length+num_pair: self.max_seq_length+num_pair+pair_L] = 1
 
         mention_pos += [(0, 0)] * (num_pair - len(mention_pos))
         labels += [-1] * (num_pair - len(labels))
@@ -314,7 +306,7 @@ class PLMarkerDataset(Dataset):
                 torch.tensor(sub_label, dtype=torch.int64)
                 ]
 
-        if self.evaluate:
+        if not self.is_training:
             item.append(entry['index'])
             item.append(sub)
             item.append(mention_2)
