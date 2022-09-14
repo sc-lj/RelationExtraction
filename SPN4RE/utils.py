@@ -36,14 +36,14 @@ def generate_span(start_logits, end_logits, info, args):
     sent_idxes = info["sent_idx"]
     sent_tokens = info["tokens"]
     _Prediction = collections.namedtuple(
-        "Prediction", ["start_index", "end_index", "start_prob", "end_prob","sub_token"]
+        "Prediction", ["start_index", "end_index", "start_prob", "end_prob", "sub_token"]
     )
     output = {}
     start_probs = start_logits.softmax(-1)
     end_probs = end_logits.softmax(-1)
     start_probs = start_probs.cpu().tolist()
     end_probs = end_probs.cpu().tolist()
-    for (start_prob, end_prob, seq_len, sent_idx, sent_token) in zip(start_probs, end_probs, seq_lens, sent_idxes,sent_tokens):
+    for (start_prob, end_prob, seq_len, sent_idx, sent_token) in zip(start_probs, end_probs, seq_lens, sent_idxes, sent_tokens):
         output[sent_idx] = {}
         for triple_id in range(args.num_generated_triples):
             predictions = []
@@ -71,7 +71,7 @@ def generate_span(start_logits, end_logits, info, args):
                             end_index=end_index,
                             start_prob=start_prob[triple_id][start_index],
                             end_prob=end_prob[triple_id][end_index],
-                            sub_token = _concat(sent_token[start_index:end_index+1])
+                            sub_token=_concat(sent_token[start_index:end_index+1])
                         )
                     )
             output[sent_idx][triple_id] = predictions
@@ -108,7 +108,7 @@ def generate_triple(output, info, args, num_classes):
     _Pred_Triple = collections.namedtuple(
         "Pred_Triple", ["pred_rel", "rel_prob", "head_start_index", "head_end_index", "head_start_prob",
                         "head_end_prob", "tail_start_index", "tail_end_index", "tail_start_prob", "tail_end_prob",
-                        "subject","object"]
+                        "subject", "object"]
     )
     pred_head_ent_dict = generate_span(
         output["head_start_logits"], output["head_end_logits"], info, args)
@@ -149,10 +149,10 @@ def generate_strategy(pred_rel, pred_head, pred_tail, num_classes, _Pred_Triple)
                     break
             tail = ele
             object = head.sub_token
-            return _Pred_Triple(pred_rel=pred_rel.pred_rel, rel_prob=pred_rel.rel_prob, head_start_index=head.start_index, 
-                                head_end_index=head.end_index, head_start_prob=head.start_prob, head_end_prob=head.end_prob, 
-                                tail_start_index=tail.start_index, tail_end_index=tail.end_index, tail_start_prob=tail.start_prob, 
-                                tail_end_prob=tail.end_prob,subject=subject,object=object)
+            return _Pred_Triple(pred_rel=pred_rel.pred_rel, rel_prob=pred_rel.rel_prob, head_start_index=head.start_index,
+                                head_end_index=head.end_index, head_start_prob=head.start_prob, head_end_prob=head.end_prob,
+                                tail_start_index=tail.start_index, tail_end_index=tail.end_index, tail_start_prob=tail.start_prob,
+                                tail_end_prob=tail.end_prob, subject=subject, object=object)
         else:
             return
     else:
@@ -174,7 +174,7 @@ def formulate_gold(target, info):
             tail_end_index = target[i]["tail_end_index"][j].item()
             subject_token = _concat(sent_token[head_start_index:head_end_index+1])
             object_token = _concat(sent_token[tail_start_index:tail_end_index+1])
-            gold[sent_idxes[i]].append((rel, head_start_index, head_end_index, tail_start_index, tail_end_index ,subject_token, object_token))
+            gold[sent_idxes[i]].append((rel, head_start_index, head_end_index, tail_start_index, tail_end_index, subject_token, object_token))
     return gold
 
 
@@ -188,4 +188,3 @@ def _concat(token_list):
         else:
             result += ' ' + t
     return result
-

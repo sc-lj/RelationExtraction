@@ -146,7 +146,7 @@ class MultiHeadAttention(nn.Module):
         query = query.reshape(batch_size, -1, num_heads,  dim_per_head).transpose(
             1, 2).reshape(batch_size*num_heads, -1, dim_per_head)
         if attn_mask is not None:
-            attn_mask = attn_mask.repeat(num_heads, 1, 1) # 
+            attn_mask = attn_mask.repeat(num_heads, 1, 1)
             # scaled dot product attention
         scale = (key.size(-1)) ** -0.5
         context, attention = self.dot_product_attention(

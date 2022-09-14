@@ -7,7 +7,6 @@ from TPlinker.utils import MetricsCalculator
 from transformers.models.bert.modeling_bert import BertModel
 
 
-
 class LayerNorm(nn.Module):
     def __init__(self, input_dim, cond_dim=0, center=True, scale=True, epsilon=None, conditional=False,
                  hidden_units=None, hidden_activation='linear', hidden_initializer='xaiver', **kwargs):

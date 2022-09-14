@@ -106,5 +106,5 @@ def collate_fn(batch_list):
 
     targets = [{k: torch.tensor(v, dtype=torch.long)
                 for k, v in t.items()} for t in targets]
-    info = {"seq_len": sent_lens, "sent_idx": sent_idx, "tokens":tokens, "texts":texts}
+    info = {"seq_len": sent_lens, "sent_idx": sent_idx, "tokens": tokens, "texts": texts}
     return input_ids, attention_mask, targets, info

@@ -51,7 +51,7 @@ class GLREDataset(Dataset):
             if val == self.ign_label:
                 self.label2ignore = key
         assert self.label2ignore != -1
-        
+
         self.word2index = json.load(open(os.path.join(args.data_dir, "word2id.json")))
         self.n_words, self.word2count = len(self.word2index.keys()), {'<UNK>': 1}
 
@@ -235,7 +235,7 @@ class GLREDataset(Dataset):
                 for x in head_ent_info["mend"]:
                     assert int(x) <= word_len, print(label_metas, '\t', word_len)
                 for x in head_ent_info["sentNo"]:
-                    assert int(x) <= sen_len -  1, print(label_metas, '\t', word_len)
+                    assert int(x) <= sen_len - 1, print(label_metas, '\t', word_len)
 
                 head_ent_info["mstart"] = [
                     str(min(int(x), word_len - 1)) for x in head_ent_info["mstart"]]
@@ -511,10 +511,10 @@ class GLREDataset(Dataset):
                  ('doc', self.documents[pmid]),  # 文档文本
                  ('entA', self.entities[pmid][r[0]]),  # 实体head的信息
                  # 实体tail的心
-                 ('entB',self.entities[pmid][r[1]]),
+                 ('entB', self.entities[pmid][r[1]]),
                  # 两个实体存在的关系集
-                 ('rel',relation_set),
-                 ('dir',ii[rt].direction),
+                 ('rel', relation_set),
+                 ('dir', ii[rt].direction),
                  ('cross', ii[rt].cross)])
 
             assert nodes[ents_keys.index(r[0])][2] == min(
@@ -574,7 +574,7 @@ class GLREDataset(Dataset):
         adjacency = np.where(np.logical_or(r_id == 1, r_id == 3) & np.logical_or(
             c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, adjacency)  # in same sentence
         rgcn_adjacency[0] = np.where(
-            np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1,rgcn_adjacency[0])
+            np.logical_or(r_id == 1, r_id == 3) & np.logical_or(c_id == 1, c_id == 3) & (r_Sid == c_Sid), 1, rgcn_adjacency[0])
 
         # entity-mention
         adjacency = np.where((r_id == 0) & (c_id == 1) & (
@@ -641,7 +641,7 @@ class GLREDataset(Dataset):
         return data
 
 
-def collate_fn(batch, NA_id,NA_NUM, istrain=False):
+def collate_fn(batch, NA_id, NA_NUM, istrain=False):
     """_summary_
     Args:
         batch (_type_): _description_
@@ -664,7 +664,7 @@ def collate_fn(batch, NA_id,NA_NUM, istrain=False):
             # id(在该batch中id),type,start(在该batch下mention的start所对应的word start),end(与前者同理),
             # e[4]+ent_count：(在该batch组合下对应的sent_id),e[4]:原始的sent_id,实体节点类型
             temp += [[e[0] + ent_count, e[1], e[2] + word_count, e[3] + word_count,
-                      e[4] + sent_count, e[4], e[5]]]  
+                      e[4] + sent_count, e[4], e[5]]]
         new_batch['entities'] += [np.array(temp)]
         # 记录当前batch下前面所有batch已经有的word 数量
         word_count += sum([len(s) for s in b['text']])
@@ -681,13 +681,13 @@ def collate_fn(batch, NA_id,NA_NUM, istrain=False):
     converted_batch = concat_examples(batch_, padding=-1)
     converted_batch['adjacency'][converted_batch['adjacency'] == -1] = 0
     converted_batch['dist_dir'][converted_batch['dist_dir'] == -1] = 0
-    
+
     bert_token = converted_batch['bert_token']
-    bert_token[bert_token==-1]= 0
+    bert_token[bert_token == -1] = 0
     bert_mask = converted_batch['bert_mask']
-    bert_mask[bert_mask==-1]= 0
+    bert_mask[bert_mask == -1] = 0
     bert_starts = converted_batch['bert_starts']
-    bert_starts[bert_starts==-1]= 0
+    bert_starts[bert_starts == -1] = 0
 
     new_batch['bert_token'] = bert_token.long()
     new_batch['bert_mask'] = bert_mask.long()
@@ -714,12 +714,12 @@ def collate_fn(batch, NA_id,NA_NUM, istrain=False):
     new_batch['rgcn_adjacency'] = convert_3dsparse_to_4dsparse(
         [b['rgcn_adjacency'] for b in batch])
     new_batch['info'] = np.stack([np.array(np.pad(b['info'],
-                                                    ((0, new_batch['section'][:, 0].max(dim=0)[0].item() -
-                                                    b['info'].shape[0]),
-                                                    (0, new_batch['section'][:, 0].max(dim=0)[0].item() -
-                                                    b['info'].shape[0])),
-                                                    'constant',
-                                                    constant_values=(-1, -1))) for b in batch], axis=0)
+                                                  ((0, new_batch['section'][:, 0].max(dim=0)[0].item() -
+                                                      b['info'].shape[0]),
+                                                   (0, new_batch['section'][:, 0].max(dim=0)[0].item() -
+                                                      b['info'].shape[0])),
+                                                  'constant',
+                                                  constant_values=(-1, -1))) for b in batch], axis=0)
     return new_batch
 
 

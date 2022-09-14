@@ -67,7 +67,7 @@ class PRGCDataset(Dataset):
             example = InputExample(
                 text=text, en_pair_list=en_pair_list, re_list=re_list, rel2ens=rel2ens)
             examples.append(example)
-        max_text_len = min(self.args.max_seq_len+2,512)
+        max_text_len = min(self.args.max_seq_len+2, 512)
         # multi-process
         # with Pool(10) as p:
         #     convert_func = functools.partial(self.convert, max_text_len=max_text_len, tokenizer=self.tokenizer, rel2idx=self.rel2id,
@@ -96,7 +96,7 @@ class PRGCDataset(Dataset):
         # cut off
         if len(text_tokens) > max_text_len-2:
             text_tokens = text_tokens[:max_text_len-2]
-        text_tokens = ["[CLS]"] + text_tokens +["[SEP]"]
+        text_tokens = ["[CLS]"] + text_tokens + ["[SEP]"]
         # token to id
         input_ids = tokenizer.convert_tokens_to_ids(text_tokens)
         attention_mask = [1] * len(input_ids)
@@ -156,14 +156,14 @@ class PRGCDataset(Dataset):
                     seq_tag=seq_tag,
                     relation=rel,
                     rel_tag=rel_tag,
-                    text = example.text
+                    text=example.text
                 ))
             # 对关系进行负采样
             if ensure_rel:
                 # negative samples, 采样一些负样本的关系数据集
                 neg_rels = set(rel2idx.values()).difference(set(example.re_list))
                 # 防止负采样数量大于实际可采样数量
-                num_neg = min(len(neg_rels),self.args.num_negs)
+                num_neg = min(len(neg_rels), self.args.num_negs)
                 neg_rels = random.sample(neg_rels, k=num_neg)
                 for neg_rel in neg_rels:
                     # init，针对关系的负样本，只对subject和object的序列全部置为O，其他的沿用正样本的数据
@@ -180,7 +180,7 @@ class PRGCDataset(Dataset):
                         seq_tag=seq_tag,
                         relation=neg_rel,
                         rel_tag=rel_tag,
-                        text = example.text
+                        text=example.text
                     ))
         # val and test data
         else:
@@ -199,7 +199,7 @@ class PRGCDataset(Dataset):
                     input_ids=input_ids,
                     attention_mask=attention_mask,
                     triples=triples,
-                    text = example.text
+                    text=example.text
                 )
             ]
 
@@ -249,17 +249,17 @@ def collate_fn_train(features):
     Returns:
         tensors (List[Tensors])
     """
-    input_ids = np.array([f.input_ids for f in features],dtype=np.int64)
+    input_ids = np.array([f.input_ids for f in features], dtype=np.int64)
     input_ids = torch.from_numpy(input_ids)
-    attention_mask = np.array([f.attention_mask for f in features],dtype=np.int64)
+    attention_mask = np.array([f.attention_mask for f in features], dtype=np.int64)
     attention_mask = torch.from_numpy(attention_mask)
-    seq_tags = np.array([f.seq_tag for f in features],dtype=np.int64)
+    seq_tags = np.array([f.seq_tag for f in features], dtype=np.int64)
     seq_tags = torch.from_numpy(seq_tags)
-    poten_relations = np.array([f.relation for f in features],dtype=np.int64)
+    poten_relations = np.array([f.relation for f in features], dtype=np.int64)
     poten_relations = torch.from_numpy(poten_relations)
-    corres_tags = np.array([f.corres_tag for f in features],dtype=np.int64)
+    corres_tags = np.array([f.corres_tag for f in features], dtype=np.int64)
     corres_tags = torch.from_numpy(corres_tags)
-    rel_tags = np.array([f.rel_tag for f in features],dtype=np.int64)
+    rel_tags = np.array([f.rel_tag for f in features], dtype=np.int64)
     rel_tags = torch.from_numpy(rel_tags)
     tensors = [input_ids, attention_mask, seq_tags,
                poten_relations, corres_tags, rel_tags]
@@ -273,9 +273,9 @@ def collate_fn_test(features):
     Returns:
         tensors (List[Tensors])
     """
-    input_ids = np.array([f.input_ids for f in features],dtype=np.int64)
+    input_ids = np.array([f.input_ids for f in features], dtype=np.int64)
     input_ids = torch.from_numpy(input_ids)
-    attention_mask = np.array([f.attention_mask for f in features],dtype=np.int64)
+    attention_mask = np.array([f.attention_mask for f in features], dtype=np.int64)
     attention_mask = torch.from_numpy(attention_mask)
     triples = [f.triples for f in features]
     input_tokens = [f.input_tokens for f in features]

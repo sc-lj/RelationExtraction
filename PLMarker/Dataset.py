@@ -7,6 +7,7 @@ import numpy as np
 from torch.utils.data import Dataset
 from transformers.models.roberta.tokenization_roberta import RobertaTokenizer
 
+
 class PLMarkerDataset(Dataset):
     def __init__(self, tokenizer, args, is_training):
         self.is_training = is_training
@@ -25,10 +26,10 @@ class PLMarkerDataset(Dataset):
         # 关系id
         relations = json.load(open(os.path.join(args.data_dir, 'rel2id.json')))
         relation_list = relations['relation']
-        self.rel2index = {label:i for i,label in enumerate(relation_list)}
+        self.rel2index = {label: i for i, label in enumerate(relation_list)}
         relation_number = len(relation_list)
         # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
-        if args.no_sym: # 不对特定关系采用双向识别
+        if args.no_sym:  # 不对特定关系采用双向识别
             self.sym_labels = relations['no_sym']
             self.num_labels = relation_number*2 - 1
         else:
@@ -51,10 +52,11 @@ class PLMarkerDataset(Dataset):
         self.global_predicted_ners = {}
         self.initialize(lines)
 
-    def initialize(self,lines):
+    def initialize(self, lines):
         max_num_subwords = self.max_seq_length - 4  # for two marker
+
         def tokenize_word(text):
-            if (isinstance(self.tokenizer, RobertaTokenizer)and (text[0] != "'") and (len(text) != 1 or not self.is_punctuation(text))):
+            if (isinstance(self.tokenizer, RobertaTokenizer) and (text[0] != "'") and (len(text) != 1 or not self.is_punctuation(text))):
                 return self.tokenizer.tokenize(text, add_prefix_space=True)
             return self.tokenizer.tokenize(text)
 
@@ -105,9 +107,9 @@ class PLMarkerDataset(Dataset):
             # 每句话的子token长度集合
             subword_sentence_boundaries = [sum(len(li) for li in tokens[:p]) for p in sentence_boundaries]
             for n in range(len(subword_sentence_boundaries) - 1):
-                sentence_ners = ners[n]
+                sentence_ners = ners[n]  # 第n个句子标准或者预测的ner
                 sentence_relations = relations[n]
-                std_ner = std_ners[n]
+                std_ner = std_ners[n]  # 第n个句子的ner
                 std_entity_labels = {}
                 self.ner_tot_recall += len(std_ner)
                 for start, end, label in std_ner:
@@ -116,13 +118,15 @@ class PLMarkerDataset(Dataset):
                 self.global_predicted_ners[(l_idx, n)] = list(sentence_ners)
                 
                 # 取当前句子及其后面一句，组合成一个pair句子输入
+                # 相邻两句话起始位置
                 doc_sent_start, doc_sent_end = subword_sentence_boundaries[n: n + 2]
                 left_length = doc_sent_start
                 right_length = len(subwords) - doc_sent_end
-                sentence_length = doc_sent_end - doc_sent_start
+                sentence_length = doc_sent_end - doc_sent_start  # 两句话的长度
+                # 左右各要补齐多少长度，才能达到规定的最大句子长度
                 half_context_length = int((max_num_subwords - sentence_length) / 2)
 
-                # 对pair句子长度短于max_num_subwords，进行左右补齐
+                # 如果句子长度小于最大长度，计算左右实际要补齐多少
                 if sentence_length < max_num_subwords:
                     if left_length < right_length:
                         left_context_length = min(left_length, half_context_length)
@@ -312,6 +316,7 @@ class PLMarkerDataset(Dataset):
             item.append(mention_2)
 
         return item
+
 
 def collate_fn(batch):
     fields = [x for x in zip(*batch)]

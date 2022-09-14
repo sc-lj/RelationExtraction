@@ -6,7 +6,7 @@ from pytorch_lightning import Trainer
 from utils.Callback import EMACallBack
 from torch.utils.data import DataLoader
 from pytorch_lightning.plugins import DDPPlugin
-from utils.utils import statistics_text_length,update_arguments
+from utils.utils import statistics_text_length, update_arguments
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, StochasticWeightAveraging
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 
@@ -32,10 +32,10 @@ def parser_args():
 
     args = parser.parse_args()
     # 根据超参数文件更新参数
-    config_file = os.path.join("config","{}.yaml".format(args.model_type))
-    with open(config_file,'r') as f:
-        config = yaml.load(f,Loader=yaml.Loader)
-    args = update_arguments(args,config)
+    config_file = os.path.join("config", "{}.yaml".format(args.model_type))
+    with open(config_file, 'r') as f:
+        config = yaml.load(f, Loader=yaml.Loader)
+    args = update_arguments(args, config)
 
     return args
 
@@ -45,11 +45,9 @@ def main():
     if args.model_type == "tdeer":
         from TDeer import TDEERPytochLighting, TDEERDataset, collate_fn, collate_fn_val
         train_dataset = TDEERDataset(args, is_training=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
         val_dataset = TDEERDataset(args, is_training=False)
-        val_dataloader = DataLoader(
-            val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn_val, batch_size=args.batch_size, shuffle=False)
 
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
@@ -58,7 +56,6 @@ def main():
 
     elif args.model_type == "tplinker":
         from TPlinker import TPlinkerPytochLighting, TPlinkerDataset, HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
-
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path, add_special_tokens=False, do_lower_case=True)
         max_length = statistics_text_length(args.train_file, tokenizer)
         print("最大文本长度为:", max_length)
@@ -69,41 +66,36 @@ def main():
         # 数据预处理
         data_path = os.path.join(args.data_out_dir, "train.json")
         if not os.path.exists(data_path):
-            TplinkerDataProcess(args, args.train_file,
-                                get_tok2char_span_map, is_training=True)
+            TplinkerDataProcess(args, args.train_file, get_tok2char_span_map, is_training=True)
         data_path = os.path.join(args.data_out_dir, "val.json")
         if not os.path.exists(data_path):
-            TplinkerDataProcess(args, args.val_file,
-                                get_tok2char_span_map, is_training=False)
+            TplinkerDataProcess(args, args.val_file, get_tok2char_span_map, is_training=False)
 
         handshaking_tagger = HandshakingTaggingScheme(args)
         data_maker = DataMaker4Bert(tokenizer, handshaking_tagger)
 
-        train_dataset = TPlinkerDataset(
-            args, data_maker, tokenizer, is_training=True)
-        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=6,
-                                      collate_fn=data_maker.generate_batch)
-        val_dataset = TPlinkerDataset(
-            args, data_maker, tokenizer, is_training=False)
-        val_dataloader = DataLoader(
-            val_dataset, batch_size=args.batch_size, collate_fn=data_maker.generate_batch)
+        train_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=6, collate_fn=data_maker.generate_batch)
+
+        val_dataset = TPlinkerDataset(args, data_maker, tokenizer, is_training=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=data_maker.generate_batch)
         args.num_step = len(train_dataloader)
         model = TPlinkerPytochLighting(args, handshaking_tagger)
 
     elif args.model_type == "prgc":
         from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
-        filename =os.path.join(args.data_dir, "train_triples.json")
+        filename = os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
         args.max_seq_len = max_length
 
         train_dataset = PRGCDataset(args, is_training=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn_train, batch_size=args.batch_size,
+                                      shuffle=True, num_workers=8, pin_memory=True)
+
         val_dataset = PRGCDataset(args, is_training=False)
-        val_dataloader = DataLoader(
-            val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn_test, batch_size=args.batch_size, shuffle=False)
 
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
@@ -112,17 +104,16 @@ def main():
     elif args.model_type == "spn4re":
         from SPN4RE import Spn4REPytochLighting, Spn4REDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
-        filename =os.path.join(args.data_dir, "train_triples.json")
+        filename = os.path.join(args.data_dir, "train_triples.json")
         max_length = statistics_text_length(filename, tokenizer)
         print("最大文本长度为:", max_length)
-        max_length = min(max_length,512)
+        max_length = min(max_length, 512)
         args.max_length = max_length
         train_dataset = Spn4REDataset(args, is_training=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=True, num_workers=8, pin_memory=True)
+
         val_dataset = Spn4REDataset(args, is_training=False)
-        val_dataloader = DataLoader(
-            val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
 
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
@@ -134,11 +125,10 @@ def main():
         train_dataset = OneRelDataset(args, is_training=True)
         relation_number = train_dataset.relation_size
         def new_collate_fn(x): return collate_fn(x, relation_number)
-        train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn,
-                                      batch_size=args.batch_size, shuffle=True, num_workers=8)
+        train_dataloader = DataLoader(train_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=True, num_workers=8)
+
         val_dataset = OneRelDataset(args, is_training=False)
-        val_dataloader = DataLoader(
-            val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=new_collate_fn, batch_size=args.batch_size, shuffle=False)
 
         args.relation_number = relation_number
         args.tag_size = len(TAG2ID)
@@ -151,16 +141,14 @@ def main():
         relation_number = train_dataset.n_rel
         label2ignore = train_dataset.label2ignore
 
-        def train_collate_fn(x): return collate_fn(x, label2ignore,args.NA_NUM, istrain=True)
-        train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn,
-                                      batch_size=args.batch_size, shuffle=True)
+        def train_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM, istrain=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=train_collate_fn, batch_size=args.batch_size, shuffle=True)
 
         val_dataset = GLREDataset(args, is_training=False)
 
-        def val_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM,istrain=False)
-        val_dataloader = DataLoader(
-            val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
-        
+        def val_collate_fn(x): return collate_fn(x, label2ignore, args.NA_NUM, istrain=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=val_collate_fn, batch_size=args.batch_size, shuffle=False)
+
         args.label2ignore = label2ignore
         args.rel_size = relation_number
         args.steps = len(train_dataset)

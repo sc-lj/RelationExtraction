@@ -2,6 +2,7 @@
 Label2IdxSub = {"B-H": 1, "I-H": 2, "O": 0}
 Label2IdxObj = {"B-T": 1, "I-T": 2, "O": 0}
 
+
 def get_chunk_type(tok, idx_to_tag):
     """
     Args:
@@ -129,5 +130,3 @@ def tag_mapping_corres(predict_tags, pre_corres, pre_rels=None, label2idx_sub=No
                 triple = list(h_t) + [idx]
             pre_triples.append(tuple(triple))
     return pre_triples
-
-

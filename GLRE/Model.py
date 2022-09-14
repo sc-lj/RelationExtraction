@@ -654,7 +654,7 @@ class GLREModuelPytochLighting(pl.LightningModule):
         section, word_sec, entities = batches['section'], batches['word_sec'], batches['entities']
         rgcn_adj, dist_dir, multi_rel = batches['rgcn_adjacency'], batches['distances_dir'], batches['multi_relations']
         relations = batches['relations']
-        graph, select = self.model(bert_token, bert_mask, bert_starts,section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
+        graph, select = self.model(bert_token, bert_mask, bert_starts, section, word_sec, entities, rgcn_adj, dist_dir, multi_rel)
         loss, pred_pairs, multi_truth, mask, truth = self.estimate_loss(graph, relations[select], multi_rel[select])
 
         return loss

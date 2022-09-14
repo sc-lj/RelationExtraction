@@ -15,7 +15,7 @@ import torch.nn as nn
 import pytorch_lightning as pl
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
-from SPN4RE.utils import generate_triple,formulate_gold
+from SPN4RE.utils import generate_triple, formulate_gold
 from transformers.models.bert.modeling_bert import BertIntermediate, BertOutput, BertAttention, BertSelfAttention, BertModel
 
 
@@ -481,14 +481,14 @@ class Spn4REPytochLighting(pl.LightningModule):
         prediction = generate_triple(outputs, info, self.args, self.num_classes)
         sent_idx = info['sent_idx']
         texts = info['texts']
-        text_idx = dict(zip(*(sent_idx,texts)))
-        return gold,prediction,text_idx
-    
+        text_idx = dict(zip(*(sent_idx, texts)))
+        return gold, prediction, text_idx
+
     def validation_epoch_end(self, outputs):
         golds = {}
         preds = {}
         text_idxs = {}
-        for gold,pred,text_idx in outputs:
+        for gold, pred, text_idx in outputs:
             golds.update(gold)
             preds.update(pred)
             text_idxs.update(text_idx)
@@ -501,18 +501,18 @@ class Spn4REPytochLighting(pl.LightningModule):
                       'val_output_{}.json'.format(self.epoch)), 'w')
 
         assert preds.keys() == golds.keys()
-        gold_num = 0 # gold数量
-        right_num = 0 # 一个样本中所有都正确的数量
-        pred_num = 0 # 预测数量
+        gold_num = 0  # gold数量
+        right_num = 0  # 一个样本中所有都正确的数量
+        pred_num = 0  # 预测数量
         error_result = []
         for sent_idx in preds:
             sent_gold = golds[sent_idx]
             # 取gold relation，gold subject，gold object
-            sent_gold = [(line[0],line[-2],line[-1]) for line in sent_gold]
+            sent_gold = [(line[0], line[-2], line[-1]) for line in sent_gold]
             gold_num += len(sent_gold)
             # 一个样本中所有关系，subject，object的组合
             # prediction = list(set([(ele.pred_rel, ele.head_start_index, ele.head_end_index, ele.tail_start_index, ele.tail_end_index) for ele in pred[sent_idx]]))
-            prediction = list(set([(ele.pred_rel,ele.subject,ele.object) for ele in preds[sent_idx]]))
+            prediction = list(set([(ele.pred_rel, ele.subject, ele.object) for ele in preds[sent_idx]]))
             pred_num += len(prediction)
             right_num += len(set(prediction) & set(sent_gold))
 
@@ -520,13 +520,13 @@ class Spn4REPytochLighting(pl.LightningModule):
             lack = [dict(zip(orders, triple)) for triple in set(sent_gold) - set(prediction)]
             if len(new) or len(lack):
                 result = {'text': text_idxs[sent_idx],
-                        'golds': [dict(zip(orders, triple)) for triple in sent_gold],
-                        'preds': [dict(zip(orders, triple)) for triple in prediction],
-                        'new': new,
-                        'lack': lack
-                        }
+                          'golds': [dict(zip(orders, triple)) for triple in sent_gold],
+                          'preds': [dict(zip(orders, triple)) for triple in prediction],
+                          'new': new,
+                          'lack': lack
+                          }
                 error_result.append(result)
-        writer.write(json.dumps(error_result,ensure_ascii=False) + '\n')
+        writer.write(json.dumps(error_result, ensure_ascii=False) + '\n')
         writer.close()
 
         if pred_num == 0:
@@ -544,11 +544,10 @@ class Spn4REPytochLighting(pl.LightningModule):
         else:
             f_measure = 2 * precision * recall / (precision + recall)
 
-        self.log("f1",f_measure, prog_bar=True)
-        self.log("acc",precision, prog_bar=True)
-        self.log("recall",recall, prog_bar=True)
+        self.log("f1", f_measure, prog_bar=True)
+        self.log("acc", precision, prog_bar=True)
+        self.log("recall", recall, prog_bar=True)
         self.epoch += 1
-
 
     def configure_optimizers(self):
         """[配置优化参数]
