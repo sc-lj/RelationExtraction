@@ -14,21 +14,21 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
     parser.add_argument('--model_type', default="plmarker",
-                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel","glre","plmarker"])
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel", "glre", "plmarker"])
     parser.add_argument('--pretrain_path', type=str, default="./bertbaseuncased", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str, default="data/scierc", help='定义数据集路径')
     parser.add_argument('--lr', default=2e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=20, type=int, help='specify the epoch size')
     parser.add_argument('--batch_size', default=8, type=int, help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
-    parser.add_argument('--float16', default=False,type=bool, help='是否采用浮点16进行半精度计算')
-    parser.add_argument('--grad_accumulations_steps', default=2,type=int, help='梯度累计步骤')
+    parser.add_argument('--float16', default=False, type=bool, help='是否采用浮点16进行半精度计算')
+    parser.add_argument('--grad_accumulations_steps', default=2, type=int, help='梯度累计步骤')
 
     # 不同学习率scheduler的参数
     parser.add_argument('--decay_rate', default=0.999, type=float, help='StepLR scheduler 相关参数')
-    parser.add_argument('--decay_steps', default=100,type=int, help='StepLR scheduler 相关参数')
+    parser.add_argument('--decay_steps', default=100, type=int, help='StepLR scheduler 相关参数')
     parser.add_argument('--T_mult', default=1.0, type=float, help='CosineAnnealingWarmRestarts scheduler 相关参数')
-    parser.add_argument('--rewarm_epoch_num', default=2,type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
+    parser.add_argument('--rewarm_epoch_num', default=2, type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
 
     args = parser.parse_args()
     # 根据超参数文件更新参数
@@ -159,12 +159,12 @@ def main():
         from PLMarker import PLMakerPytochLighting, PLMarkerDataset, collate_fn
         tokenizer = BertTokenizerFast.from_pretrained(args.pretrain_path)
 
-        train_dataset = PLMarkerDataset(tokenizer,args, is_training=True)
-        train_dataloader = DataLoader(train_dataset,batch_size=args.batch_size, shuffle=True)
+        train_dataset = PLMarkerDataset(tokenizer, args, is_training=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
         args.num_labels = train_dataset.num_labels
         args.num_ner_labels = train_dataset.num_ner_labels
 
-        val_dataset = PLMarkerDataset(tokenizer,args, is_training=False)
+        val_dataset = PLMarkerDataset(tokenizer, args, is_training=False)
         val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
 
         # 使用验证的标签集与计算相关的指标
@@ -176,7 +176,7 @@ def main():
 
         args.t_total = len(train_dataloader) // args.grad_accumulations_steps * args.epoch
         args.steps = len(train_dataset)
-        model = PLMakerPytochLighting(args,tokenizer)
+        model = PLMakerPytochLighting(args, tokenizer)
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
 
@@ -208,7 +208,7 @@ def main():
                          callbacks=[checkpoint_callback,
                                     early_stopping_callback],
                          accumulate_grad_batches=args.grad_accumulations_steps,  # 累计梯度计算
-                         precision=16 if args.float16 else 32, # 半精度训练
+                         precision=16 if args.float16 else 32,  # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
                          progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
                          # O0：纯FP32训练,
