@@ -124,13 +124,13 @@ class BertForACEBothOneDropoutSub(BertPreTrainedModel):
 
 
 class PLMakerPytochLighting(pl.LightningModule):
-    def __init__(self, args,tokenizer) -> None:
+    def __init__(self, args, tokenizer) -> None:
         super().__init__()
         self.golden_labels = args.golden_labels
         self.golden_labels_withner = args.golden_labels_withner
         self.ner_golden_labels = args.ner_golden_labels
         self.global_predicted_ners = args.global_predicted_ners
-        self.tot_recall = args.tot_recall 
+        self.tot_recall = args.tot_recall
         # 删除args中相关的属性，不用保存在参数列表中
         args.__delattr__("golden_labels")
         args.__delattr__("golden_labels_withner")
@@ -140,14 +140,14 @@ class PLMakerPytochLighting(pl.LightningModule):
 
         self.args = args
         self.ner2id = json.load(open(os.path.join(args.data_dir, 'ner2id.json')))
-        self.id2ner = {v:k for k,v in self.ner2id.items()}
+        self.id2ner = {v: k for k, v in self.ner2id.items()}
         self.num_ner_labels = args.num_ner_labels
         self.num_labels = args.num_labels
 
         if args.m_type == "bertsub":
-            self.model = BertForACEBothOneDropoutSub.from_pretrained(args.pretrain_path,args)
+            self.model = BertForACEBothOneDropoutSub.from_pretrained(args.pretrain_path, args)
         elif args.m_type == "bertnonersub":
-            self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path,args)
+            self.model = BertForACEBothOneDropoutSubNoNer.from_pretrained(args.pretrain_path, args)
         else:
             raise ValueError(f"错误的{args.m_type},请填写bertnonersub,bertsub")
         self.loss_fct_re = CrossEntropyLoss(ignore_index=-1)
@@ -158,22 +158,22 @@ class PLMakerPytochLighting(pl.LightningModule):
         self.num_label = len(self.relation_list)
         if args.lminit:
             word_embeddings = self.model.bert.embeddings.word_embeddings.weight.data
-            subs,sube = 1, 2
-            objs,obje = 3, 4
+            subs, sube = 1, 2
+            objs, obje = 3, 4
             subject_id = tokenizer.encode('subject', add_special_tokens=False)
-            assert(len(subject_id)==1)
+            assert(len(subject_id) == 1)
             subject_id = subject_id[0]
             object_id = tokenizer.encode('object', add_special_tokens=False)
-            assert(len(object_id)==1)
+            assert(len(object_id) == 1)
             object_id = object_id[0]
 
             mask_id = tokenizer.encode('[MASK]', add_special_tokens=False)
-            assert(len(mask_id)==1)
+            assert(len(mask_id) == 1)
             mask_id = mask_id[0]
             word_embeddings[subs].copy_(word_embeddings[mask_id])
             word_embeddings[sube].copy_(word_embeddings[subject_id])
 
-            word_embeddings[objs].copy_(word_embeddings[mask_id])  
+            word_embeddings[objs].copy_(word_embeddings[mask_id])
             word_embeddings[obje].copy_(word_embeddings[object_id])
             # self.model.bert.embeddings.word_embeddings.weight.data = word_embeddings
 
@@ -230,7 +230,7 @@ class PLMakerPytochLighting(pl.LightningModule):
         elif self.args.eval_softmax:
             logits = F.softmax(re_prediction_scores, dim=-1)
 
-        if self.args.use_ner_results or self.args.m_type.endswith('nonersub'):                 
+        if self.args.use_ner_results or self.args.m_type.endswith('nonersub'):
             ner_preds = ner_labels
         else:
             ner_preds = torch.argmax(ner_prediction_scores, dim=-1)
@@ -283,7 +283,7 @@ class PLMakerPytochLighting(pl.LightningModule):
                         v1[j] += v2[j]
                 # else:
                 #     assert (False)
-                if v1_ner_label=='NIL':
+                if v1_ner_label == 'NIL':
                     continue
 
                 pred_label = np.argmax(v1)
@@ -361,19 +361,19 @@ class PLMakerPytochLighting(pl.LightningModule):
                 if (example_index, (start, end), label) in self.ner_golden_labels:
                     ner_cor += 1
                 ner_tot_pred += 1
-        
-        ner_p = ner_cor / ner_tot_pred if ner_tot_pred > 0 else 0 
-        ner_r = ner_cor / len(self.ner_golden_labels) 
+
+        ner_p = ner_cor / ner_tot_pred if ner_tot_pred > 0 else 0
+        ner_r = ner_cor / len(self.ner_golden_labels)
         ner_f1 = 2 * (ner_p * ner_r) / (ner_p + ner_r) if ner_cor > 0 else 0.0
 
-        p = round(cor / tot_pred,5) if tot_pred > 0 else 0 
-        recall = round(cor / self.tot_recall,5)
-        f1 = round(2 * (p * recall) / (p + recall),5) if cor > 0 else 0.0
-        assert(self.tot_recall==len(self.golden_labels))
+        p = round(cor / tot_pred, 5) if tot_pred > 0 else 0
+        recall = round(cor / self.tot_recall, 5)
+        f1 = round(2 * (p * recall) / (p + recall), 5) if cor > 0 else 0.0
+        assert(self.tot_recall == len(self.golden_labels))
 
-        p_with_ner = cor_with_ner / tot_pred if tot_pred > 0 else 0 
+        p_with_ner = cor_with_ner / tot_pred if tot_pred > 0 else 0
         r_with_ner = cor_with_ner / self.tot_recall
-        assert(self.tot_recall==len(self.golden_labels_withner))
+        assert(self.tot_recall == len(self.golden_labels_withner))
         f1_with_ner = 2 * (p_with_ner * r_with_ner) / (p_with_ner + r_with_ner) if cor_with_ner > 0 else 0.0
 
         results = {'f1':  f1,  'f1_with_ner': f1_with_ner, 'ner_f1': ner_f1}
@@ -384,7 +384,6 @@ class PLMakerPytochLighting(pl.LightningModule):
         self.log("recall", float(recall), prog_bar=True)
         self.log("acc", float(p), prog_bar=True)
         self.log("f1", float(f1), prog_bar=True)
-
 
     def configure_optimizers(self):
         no_decay = ['bias', 'LayerNorm.weight']
@@ -402,4 +401,3 @@ class PLMakerPytochLighting(pl.LightningModule):
             scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=self.args.warmup_steps, num_training_steps=self.args.t_total)
         optim_dict = {'optimizer': optimizer, 'lr_scheduler': scheduler}
         return optim_dict
-

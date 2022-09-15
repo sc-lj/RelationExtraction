@@ -66,7 +66,7 @@ class PLMarkerDataset(Dataset):
         self.tot_recall = 0
         self.data = []
         # ((样本id, 句子id), (实体start, 实体end), 实体label))
-        self.ner_golden_labels = set([]) 
+        self.ner_golden_labels = set([])
         # ((样本id, 句子id), (sub_start,sub_end), (obj_start,obj_end), 关系label))
         self.golden_labels = set([])
         # ((样本id, 句子id), (sub_start,sub_end,sub_token), (obj_start,obj_end,obj_token), 关系label))
@@ -103,7 +103,7 @@ class PLMarkerDataset(Dataset):
 
             tokens = [tokenize_word(w) for w in words]
             subwords = [w for li in tokens for w in li]
-            maxL = max(maxL, len(subwords)) # 子token的最大长度
+            maxL = max(maxL, len(subwords))  # 子token的最大长度
             # 子token的边界
             token2subword = [0] + list(itertools.accumulate(len(li) for li in tokens))
             # 每句话的子token长度集合
@@ -118,7 +118,7 @@ class PLMarkerDataset(Dataset):
                     std_entity_labels[(start, end)] = label
                     self.ner_golden_labels.add(((l_idx, n), (start, end), label))
                 self.global_predicted_ners[(l_idx, n)] = list(sentence_ners)
-                
+
                 # 取当前句子及其后面一句，组合成一个pair句子输入
                 # 相邻两句话起始位置
                 doc_sent_start, doc_sent_end = subword_sentence_boundaries[n: n + 2]
@@ -150,10 +150,12 @@ class PLMarkerDataset(Dataset):
                     # sub_start,sub_end,obj_start,obj_end
                     pos2label[(x[0], x[1], x[2], x[3])] = self.rel2index[x[4]]
                     self.golden_labels.add(((l_idx, n), (x[0], x[1]), (x[2], x[3]), x[4]))
-                    self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(x[0], x[1])]), (x[2], x[3], std_entity_labels[(x[2], x[3])]), x[4]))
-                    if x[4] in self.sym_labels[1:]: # 对于关系在定义的对称关系中的，sub和obj进行对调
+                    self.golden_labels_withner.add(((l_idx, n), (x[0], x[1], std_entity_labels[(x[0], x[1])]),
+                                                   (x[2], x[3], std_entity_labels[(x[2], x[3])]), x[4]))
+                    if x[4] in self.sym_labels[1:]:  # 对于关系在定义的对称关系中的，sub和obj进行对调
                         self.golden_labels.add(((l_idx, n),  (x[2], x[3]), (x[0], x[1]), x[4]))
-                        self.golden_labels_withner.add(((l_idx, n), (x[2], x[3], std_entity_labels[(x[2], x[3])]), (x[0], x[1], std_entity_labels[(x[0], x[1])]), x[4]))
+                        self.golden_labels_withner.add(((l_idx, n), (x[2], x[3], std_entity_labels[(
+                            x[2], x[3])]), (x[0], x[1], std_entity_labels[(x[0], x[1])]), x[4]))
 
                 for x in sentence_relations:
                     w = (x[2], x[3], x[0], x[1])
@@ -312,7 +314,8 @@ class PLMarkerDataset(Dataset):
         if self.args.att_left:
             attention_mask[self.max_seq_length: self.max_seq_length + pair_L, self.max_seq_length: self.max_seq_length+pair_L] = 1
         if self.args.att_right:
-            attention_mask[self.max_seq_length+num_pair: self.max_seq_length+num_pair + pair_L, self.max_seq_length+num_pair: self.max_seq_length+num_pair+pair_L] = 1
+            attention_mask[self.max_seq_length+num_pair: self.max_seq_length+num_pair +
+                           pair_L, self.max_seq_length+num_pair: self.max_seq_length+num_pair+pair_L] = 1
 
         mention_pos += [(0, 0)] * (num_pair - len(mention_pos))
         labels += [-1] * (num_pair - len(labels))
