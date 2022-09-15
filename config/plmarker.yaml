@@ -1,6 +1,6 @@
 # 输入序列的长度
 max_seq_length: 384
-# 每次输入的pair长度
+# 与subject进行匹配的最长的object pair对数量
 max_pair_length: 16
 # 交叉损失的权重
 alpha: 1.0

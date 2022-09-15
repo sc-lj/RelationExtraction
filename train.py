@@ -220,8 +220,7 @@ def main():
                          amp_backend="apex",
                          # resume_from_checkpoint =""
                          )
-    trainer.fit(model, train_dataloaders=train_dataloader,
-                val_dataloaders=val_dataloader)
+    trainer.fit(model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
 
 if __name__ == "__main__":

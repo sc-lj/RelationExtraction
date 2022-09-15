@@ -156,8 +156,13 @@ ps: ``这是一篇文档级关系抽取算法，说是文档级，但是却把�
 ```
 
 # PLMarker🦌
+Official Paper For [Packed Levitated Marker for Entity and Relation Extraction](https://arxiv.org/abs/2109.06067)。
+Official code For [github](https://github.com/thunlp/PL-Marker)。
 
+## Overview
+PLMarker 是采用pipline的方式进行关系预测，即先利用预测好的实体，进行关系预测。
 
+![overview](docs/PLMarker-Overview.png)
 
 
 # 项目说明

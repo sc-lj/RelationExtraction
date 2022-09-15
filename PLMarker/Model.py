@@ -175,7 +175,7 @@ class PLMakerPytochLighting(pl.LightningModule):
 
             word_embeddings[objs].copy_(word_embeddings[mask_id])  
             word_embeddings[obje].copy_(word_embeddings[object_id])
-            self.model.bert.embeddings.word_embeddings.weight.data = word_embeddings
+            # self.model.bert.embeddings.word_embeddings.weight.data = word_embeddings
 
         # 使用对某些关系采用双向识别，即处于关系下的triple对是无向的。
         if args.no_sym:  # 不对特定关系采用双向识别
