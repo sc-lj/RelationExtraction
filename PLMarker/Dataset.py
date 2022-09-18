@@ -123,7 +123,7 @@ class PLMarkerDataset(Dataset):
                 # 相邻两句话起始位置
                 doc_sent_start, doc_sent_end = subword_sentence_boundaries[n: n + 2]
                 left_length = doc_sent_start
-                right_length = len(subwords) - doc_sent_end # 当前pair句子右边距离文本end的长度
+                right_length = len(subwords) - doc_sent_end  # 当前pair句子右边距离文本end的长度
                 sentence_length = doc_sent_end - doc_sent_start  # 两句话的长度
 
                 # 如果句子长度小于最大长度，计算左右实际要补齐多少
@@ -136,7 +136,7 @@ class PLMarkerDataset(Dataset):
                     else:
                         right_context_length = min(right_length, half_context_length)
                         left_context_length = min(left_length, max_num_subwords - right_context_length - sentence_length)
-                
+
                 # pair对子句起始位置需要向左偏移的长度
                 doc_offset = doc_sent_start - left_context_length
                 target_tokens = subwords[doc_offset: doc_sent_end + right_context_length]
@@ -161,7 +161,7 @@ class PLMarkerDataset(Dataset):
                     w = (x[2], x[3], x[0], x[1])
                     if w not in pos2label:
                         # 对于关系在定义的对称关系中的，sub和obj进行对调，其关系是仍然为原来的关系
-                        if x[4] in self.sym_labels[1:]: 
+                        if x[4] in self.sym_labels[1:]:
                             pos2label[w] = self.rel2index[x[4]]  # bug
                         else:
                             # 对非双向的关系的index进行double，即其关系为反方向
@@ -174,7 +174,7 @@ class PLMarkerDataset(Dataset):
 
                 # subject 实体
                 for sub in entities:
-                    cur_ins = [] # 对于每个subject实体，在当前pair子句中遍历出其所有的可能的object
+                    cur_ins = []  # 对于每个subject实体，在当前pair子句中遍历出其所有的可能的object
                     if sub[0] < 10000:
                         # 该实体在当前的pair子句中的起始index
                         sub_s = token2subword[sub[0]] - doc_offset + 1
@@ -183,7 +183,7 @@ class PLMarkerDataset(Dataset):
                         sub_label = self.type2index[sub[2]]
 
                         if self.use_typemarker:
-                            # 是否使用实体标签作为特殊符号 
+                            # 是否使用实体标签作为特殊符号
                             l_m = '[unused%d]' % (2 + sub_label)
                             r_m = '[unused%d]' % (2 + sub_label + len(self.type2index))
                         else:
@@ -246,7 +246,7 @@ class PLMarkerDataset(Dataset):
                             'examples': examples,
                             # (sub[0], sub[1], sub_label),
                             'sub': (sub, (sub_s, sub_e), sub_label),
-                            }
+                        }
                         self.data.append(item)
 
     def __len__(self):
@@ -266,7 +266,8 @@ class PLMarkerDataset(Dataset):
         # object 的start
         input_ids = input_ids + [3] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))
         # object 的end
-        input_ids = input_ids + [4] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * (self.max_pair_length - len(entry['examples']))  # for debug
+        input_ids = input_ids + [4] * (len(entry['examples'])) + [self.tokenizer.pad_token_id] * \
+            (self.max_pair_length - len(entry['examples']))  # for debug
 
         labels = []
         ner_labels = []
@@ -283,8 +284,8 @@ class PLMarkerDataset(Dataset):
             # 该mention的初始的index
             mention_2.append(obj[2])
 
-            w1 = x_idx # 第x_idx个pair的start
-            w2 = w1 + num_pair # 第x_idx个pair的end
+            w1 = x_idx  # 第x_idx个pair的start
+            w2 = w1 + num_pair  # 第x_idx个pair的end
 
             w1 += self.max_seq_length
             w2 += self.max_seq_length

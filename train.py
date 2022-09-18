@@ -201,7 +201,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=args.epoch,
-                         gpus=[1],
+                         gpus=[0],
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation
