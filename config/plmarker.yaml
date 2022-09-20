@@ -8,7 +8,7 @@ alpha: 1.0
 use_typemarker: false
 # 使用使用ner预测的结果
 use_ner_results: false
-# 
+#
 eval_unidirect: false
 # 对attention_mask 进行上三角mask
 att_right: false
@@ -28,5 +28,3 @@ warmup_steps: -1
 
 eval_logsoftmax: true
 eval_softmax: false
-use_ner_results: true
-
