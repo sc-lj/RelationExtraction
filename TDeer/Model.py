@@ -150,12 +150,8 @@ class TDEER(BertPreTrainedModel):
         self.conditionlayernormal = ConditionalLayerNorm(hidden_size, hidden_size)
         self.hidden_size = hidden_size
         # 对bert的所有hidden states进行加权平均
-<<<<<<< HEAD
         self.hidden_weight = nn.Linear(self.args.hidden_fuse_layers,1)
         self.rel_sub_fuse = nn.Linear(2*hidden_size,hidden_size)
-=======
-        self.hidden_weight = nn.Linear(self.args.hidden_fuse_layers, 1)
->>>>>>> origin/master
         self.init_weights()
 
     def relModel(self, pooler_output):
@@ -346,13 +342,8 @@ class TDEERPytochLighting(pl.LightningModule):
         obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads) 
         obj_loss += self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
-<<<<<<< HEAD
         loss += self.loss_weight[3]*obj_loss
         return loss,obj_hidden, last_hidden_size
-=======
-        loss += self.loss_weight[3]*entity_tail_loss
-        return loss, obj_hidden, last_hidden_size
->>>>>>> origin/master
 
     def training_step(self, batch, step_idx):
         loss, obj_hidden, last_hidden_size = self.train_one(batch)
