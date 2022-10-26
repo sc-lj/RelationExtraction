@@ -10,7 +10,7 @@ from utils.Callback import FGM
 import torch.nn.functional as F
 from utils.loss_func import MLFocalLoss, BCEFocalLoss
 from transformers.models.bert.modeling_bert import BertSelfAttention, BertSelfOutput, BertModel, BertPreTrainedModel
-
+from transformers.models.bert.configuration_bert import BertConfig
 
 class Linear(nn.Linear):
     def reset_parameters(self) -> None:
