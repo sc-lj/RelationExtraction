@@ -357,10 +357,9 @@ class PRGCPytochLighting(pl.LightningModule):
         return texts, pred_seqs, pred_corres, xi_index, pred_rels,triples,input_tokens
     
     def validation_epoch_end(self, outputs):
-        os.makedirs(os.path.join(self.args.output_path,
-                    self.args.model_type), exist_ok=True)
-        writer = open(os.path.join(self.args.output_path, self.args.model_type,
-                      'val_output_{}.json'.format(self.epoch)), 'w')
+        log_dir = [log.log_dir for log in self.loggers if hasattr(log,"log_dir")][0]
+        os.makedirs(os.path.join(log_dir,"output"), exist_ok=True)
+        writer = open(os.path.join(log_dir, "output",'val_output_{}.json'.format(self.epoch)), 'w')
         predictions = []
         ground_truths = []
         correct_num, predict_num, gold_num = 0, 0, 0

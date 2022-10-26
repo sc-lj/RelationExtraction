@@ -495,10 +495,9 @@ class Spn4REPytochLighting(pl.LightningModule):
 
         orders = ['relation', 'subject', 'object']
 
-        os.makedirs(os.path.join(self.args.output_path,
-                    self.args.model_type), exist_ok=True)
-        writer = open(os.path.join(self.args.output_path, self.args.model_type,
-                      'val_output_{}.json'.format(self.epoch)), 'w')
+        log_dir = [log.log_dir for log in self.loggers if hasattr(log,"log_dir")][0]
+        os.makedirs(os.path.join(log_dir,"output"), exist_ok=True)
+        writer = open(os.path.join(log_dir, "output",'val_output_{}.json'.format(self.epoch)), 'w')
 
         assert preds.keys() == golds.keys()
         gold_num = 0  # gold数量

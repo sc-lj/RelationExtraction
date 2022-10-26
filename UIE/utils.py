@@ -6,10 +6,15 @@ from typing import List
 SPOT_PROMPT = '<spot>'
 ASOC_PROMPT = '<asoc>'
 
+# 标签的开始标志
 TYPE_START = '<extra_id_0>'
+# 标签的结束标志
 TYPE_END = '<extra_id_1>'
+# 输入文本的开始标志
 TEXT_START = '<extra_id_2>'
+# 文本span的开始标志
 SPAN_START = '<extra_id_5>'
+# 非文本span的标志
 null_span = '<extra_id_6>'
 null_label = '<extra_id_7>'
 

@@ -1,0 +1,4 @@
+# 记录相关schema信息的文件路径
+record_schema: 
+# 用于添加到文本前的信息的类型，可选值为：meta,schema
+source_prefix: 
