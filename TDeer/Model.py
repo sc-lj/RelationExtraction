@@ -326,7 +326,7 @@ class TDEERPytochLighting(pl.LightningModule):
         pred_rels, pred_entity_heads, pred_entity_tails, pred_obj_head, obj_hidden, last_hidden_size = output
 
         loss = 0
-        rel_loss = self.rel_loss(pred_rels, batch_rels) 
+        rel_loss = self.rel_loss(pred_rels, batch_rels)
         rel_loss += self.focal_loss(pred_rels, batch_rels)
         loss += self.loss_weight[0]*rel_loss
 
@@ -346,11 +346,11 @@ class TDEERPytochLighting(pl.LightningModule):
 
         pred_obj_head = pred_obj_head.reshape(-1, 1)
         batch_sample_obj_heads = batch_sample_obj_heads.reshape(-1, 1)
-        obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads) 
+        obj_loss = self.obj_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss += self.b_focal_loss(pred_obj_head, batch_sample_obj_heads)
         obj_loss = (obj_loss*batch_text_mask).sum()/batch_text_mask.sum()
         loss += self.loss_weight[3]*obj_loss
-        return loss,obj_hidden, last_hidden_size
+        return loss, obj_hidden, last_hidden_size
 
     def training_step(self, batch, step_idx):
         loss, obj_hidden, last_hidden_size = self.train_one(batch)
@@ -537,7 +537,7 @@ class TDEERPytochLighting(pl.LightningModule):
             only_sub_rel_pred += len(set(pred))
             only_sub_rel_tot += len(set(target))
 
-        real_acc = round(only_sub_rel_cor/only_sub_rel_pred,5) if only_sub_rel_pred != 0 else 0
+        real_acc = round(only_sub_rel_cor/only_sub_rel_pred, 5) if only_sub_rel_pred != 0 else 0
         real_recall = round(only_sub_rel_cor/only_sub_rel_tot, 5)
         real_f1 = round(2*(real_recall*real_acc)/(real_recall + real_acc), 5) if (real_recall+real_acc) != 0 else 0
         self.log("sr_tot", only_sub_rel_tot, prog_bar=True)
