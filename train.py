@@ -12,6 +12,7 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, Stochast
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from pytorch_lightning.loggers import TensorBoardLogger
 
+
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
     parser.add_argument('--model_type', default="plmarker",
@@ -43,7 +44,7 @@ def parser_args():
 
 def main():
     args = parser_args()
-    tb_logger = TensorBoardLogger(save_dir="lightning_logs",name=args.model_type)
+    tb_logger = TensorBoardLogger(save_dir="lightning_logs", name=args.model_type)
     if args.model_type == "tdeer":
         from TDeer import TDEERPytochLighting, TDEERDataset, collate_fn, collate_fn_val
         train_dataset = TDEERDataset(args, is_training=True)
@@ -55,8 +56,8 @@ def main():
         args.relation_number = relation_number
         args.steps = len(train_dataset)
         model = TDEERPytochLighting(args)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("TDeer",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("TDeer", save_temp_model)
 
     elif args.model_type == "tplinker":
         from TPlinker import TPlinkerPytochLighting, TPlinkerDataset, HandshakingTaggingScheme, DataMaker4Bert, TplinkerDataProcess
@@ -85,8 +86,8 @@ def main():
         val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, collate_fn=data_maker.generate_batch)
         args.num_step = len(train_dataloader)
         model = TPlinkerPytochLighting(args, handshaking_tagger)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("TPlinker",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("TPlinker", save_temp_model)
 
     elif args.model_type == "prgc":
         from PRGC import PRGCPytochLighting, PRGCDataset, collate_fn_test, collate_fn_train
@@ -106,8 +107,8 @@ def main():
         relation_number = train_dataset.relation_size
         args.relation_number = relation_number
         model = PRGCPytochLighting(args)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("PRGC",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("PRGC", save_temp_model)
 
     elif args.model_type == "spn4re":
         from SPN4RE import Spn4REPytochLighting, Spn4REDataset, collate_fn
@@ -127,8 +128,8 @@ def main():
         args.relation_number = relation_number
         args.steps = len(train_dataset)
         model = Spn4REPytochLighting(args)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("SPN4RE",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("SPN4RE", save_temp_model)
 
     elif args.model_type == "one4rel":
         from OneRel import OneRelPytochLighting, OneRelDataset, collate_fn, TAG2ID
@@ -144,8 +145,8 @@ def main():
         args.tag_size = len(TAG2ID)
         args.steps = len(train_dataset)
         model = OneRelPytochLighting(args)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("OneRel",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("OneRel", save_temp_model)
 
     elif args.model_type == "glre":
         from GLRE import GLREModuelPytochLighting, GLREDataset, collate_fn
@@ -166,8 +167,8 @@ def main():
         args.steps = len(train_dataset)
         args.index2rel = train_dataset.index2rel
         model = GLREModuelPytochLighting(args)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("GLRE",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("GLRE", save_temp_model)
 
     elif args.model_type == "plmarker":
         from PLMarker import PLMakerPytochLighting, PLMarkerDataset, collate_fn
@@ -191,8 +192,8 @@ def main():
         args.t_total = len(train_dataloader) // args.grad_accumulations_steps * args.epoch
         args.steps = len(train_dataset)
         model = PLMakerPytochLighting(args, tokenizer)
-        save_temp_model = os.path.join(tb_logger.log_dir , "models")
-        shutil.copytree("PLMarker",save_temp_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("PLMarker", save_temp_model)
 
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
@@ -203,7 +204,7 @@ def main():
         monitor='f1',  # 监控val_acc指标
         mode='max',
         save_last=True,
-        dirpath =os.path.join(tb_logger.log_dir , "checkpoints"),
+        dirpath=os.path.join(tb_logger.log_dir, "checkpoints"),
         every_n_epochs=1,
         # filename = "{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}",
         filename="{epoch:02d}{f1:.3f}{acc:.3f}{recall:.3f}{sr_rec:.3f}{sr_acc:.3f}",
