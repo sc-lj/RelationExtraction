@@ -1,20 +1,20 @@
-model_name: prgc
-# threshold of global correspondence
-corres_threshold: 0.5
-# threshold of relation judgement
-rel_threshold: 0.5
-# token序列embedding与关系embedding结合方式
-emb_fusion: "concat"
-# 是否需要对关系进行负采样
-ensure_rel: true
-# 当对关系进行负采样时,负采样的个数
-num_negs: 4
-# 对各个预测模块采用的drop out率
-drop_prob: 0.2
-# 是否对Global Correspondence使用global pointer loss损失函数
-is_glo: true
-# 是否使用双仿射注意力机制计算Global Correspondence
-biaffine: true
-# 是否将字符token表征的均值作为句子表征用于关系预测
-avgpool: false
-
+model_params:
+  model_name: prgc
+  # threshold of global correspondence
+  corres_threshold: 0.5
+  # threshold of relation judgement
+  rel_threshold: 0.5
+  # token序列embedding与关系embedding结合方式
+  emb_fusion: "concat"
+  # 是否需要对关系进行负采样
+  ensure_rel: true
+  # 当对关系进行负采样时,负采样的个数
+  num_negs: 4
+  # 对各个预测模块采用的drop out率
+  drop_prob: 0.2
+  # 是否对Global Correspondence使用global pointer loss损失函数
+  is_glo: true
+  # 是否使用双仿射注意力机制计算Global Correspondence
+  biaffine: true
+  # 是否将字符token表征的均值作为句子表征用于关系预测
+  avgpool: false

@@ -13,7 +13,7 @@ import random
 from typing import Optional, Union
 from collections import OrderedDict
 from transformers import PreTrainedTokenizerBase, PreTrainedModel
-
+from transformers.file_utils import PaddingStrategy
 
 SPOT_PROMPT = '<spot>'
 ASOC_PROMPT = '<asoc>'
@@ -106,7 +106,6 @@ def merge_schema(schema_list: List[RecordSchema]):
     type_role_dict = defaultdict(list)
 
     for schema in schema_list:
-
         for type_name in schema.type_list:
             type_set.add(type_name)
 
@@ -123,36 +122,6 @@ def merge_schema(schema_list: List[RecordSchema]):
                         role_list=list(role_set),
                         type_role_dict=type_role_dict,
                         )
-
-
-class TaskConfig:
-    def __init__(self, task_dict) -> None:
-        self.dataset_name = task_dict.get('name', '')
-        self.task_name = task_dict.get('task', '')
-        self.data_path = task_dict.get('path', '')
-        self.decoding_format = task_dict.get('decoding_format', '')
-        self.weight = int(task_dict.get('weight', 0))
-        self.sel2record = task_dict.get('sel2record', '')
-        self.metrics = task_dict.get('metrics', [])
-        self.eval_match_mode = task_dict.get('eval_match_mode', 'normal')
-        self.schema = RecordSchema.read_from_file(f"{self.data_path}/{self.task_name}.schema")
-
-    def __repr__(self) -> str:
-        return f"dataset: {self.dataset_name}\n" \
-               f"task   : {self.task_name}\n" \
-               f"format : {self.decoding_format}\n" \
-               f"path   : {self.data_path}\n" \
-               f"schema : {self.schema}\n" \
-               f"metrics: {self.metrics}\n" \
-               f"eval_match_mode : {self.eval_match_mode}"
-
-    @staticmethod
-    def load_list_from_yaml(task_config):
-        import yaml
-        configs = yaml.load(open(task_config), Loader=yaml.FullLoader)
-        task_configs = filter(lambda x: x.startswith('T'), configs)
-        for task_config in task_configs:
-            yield TaskConfig(configs[task_config])
 
 
 class PrefixGenerator:
@@ -184,20 +153,20 @@ class PrefixGenerator:
             return prefix
 
     @staticmethod
-    def get_dataset_name_prefix(dataset: TaskConfig, add_split=True):
+    def get_dataset_name_prefix(dataset, add_split=True):
         if add_split:
             return dataset.dataset_name + f' {TEXT_START}'
         else:
             return dataset.dataset_name
 
     @staticmethod
-    def get_task_name_prefix(dataset: TaskConfig, add_split=True):
+    def get_task_name_prefix(dataset, add_split=True):
         if add_split:
             return dataset.task_name + f' {TEXT_START}'
         else:
             return dataset.task_name
 
-    def get_prefix_by_dataset(self, dataset: TaskConfig):
+    def get_prefix_by_dataset(self, dataset):
         prefix_list = list()
         for prefix_type in self.type_list:
             if prefix_type == 'task':
@@ -227,11 +196,8 @@ class PredictParser:
 
 
 class SpotAsocPredictParser(PredictParser):
-
-    def decode(self, gold_list, pred_list, text_list=None, raw_list=None
-               ) -> Tuple[List[Dict], Counter]:
+    def decode(self, gold_list, pred_list, text_list=None, raw_list=None) -> Tuple[List[Dict], Counter]:
         """
-
         :param gold_list:
         :param pred_list:
         :param text_list:
@@ -763,7 +729,6 @@ class DataCollatorForMetaSeq2Seq:
     pad_to_multiple_of: Optional[int] = None
     label_pad_token_id: int = -100
     spot_asoc_nosier: SpotAsocNoiser = None
-    decoding_format: str = 'spotasoc'
 
     def __call__(self, features):
         """ Make Meta Schema Batch
@@ -780,9 +745,7 @@ class DataCollatorForMetaSeq2Seq:
         Returns:
         """
         for feature in features:
-
             sample_prompt = feature.get('sample_prompt', None)
-
             if not sample_prompt:
                 # Evaluation using Ordered SSI
                 converted_spot_prefix = self.negative_sampler.full_spot(shuffle=self.model.training)
@@ -794,10 +757,8 @@ class DataCollatorForMetaSeq2Seq:
 
                 # Dynamic generating spot-asoc during training
                 if 'spot_asoc' in feature:
-
                     # Deleted positive example Spot in Target that was not sampled by Prefix
                     feature['spot_asoc'] = [spot_asoc for spot_asoc in feature['spot_asoc'] if spot_asoc["label"] in positive_spot]
-
                     # Inject rejection noise
                     if self.spot_asoc_nosier is not None:
                         if isinstance(self.spot_asoc_nosier, SpotAsocNoiser):
@@ -810,10 +771,7 @@ class DataCollatorForMetaSeq2Seq:
                             raise NotImplementedError(f'{self.spot_asoc_nosier} is not implemented.')
 
                     # Generate new record
-                    record = convert_to_record_function[self.decoding_format](
-                        feature['spot_asoc'],
-                        structure_maker=BaseStructureMarker()
-                    )
+                    record = convert_spot_asoc(feature['spot_asoc'], structure_maker=BaseStructureMarker())
                     feature["labels"] = self.tokenizer.encode(record)
 
             feature.pop('sample_prompt') if 'sample_prompt' in feature else None
@@ -941,7 +899,22 @@ def convert_spot_asoc_name(spot_asoc_instance, structure_maker):
     return target_text
 
 
-convert_to_record_function = {
-    'spotasoc': convert_spot_asoc,
-    'spotasocname': convert_spot_asoc_name,
-}
+def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
+    sub_token_tree = dict()
+
+    label_tree = dict()
+    for typename in label_name_list:
+        after_tokenized = tokenizer.encode(typename, add_special_tokens=False)
+        # label_tree[typename] = tokenizer.convert_ids_to_tokens(after_tokenized)
+        label_tree[typename] = after_tokenized
+
+    for _, sub_label_seq in label_tree.items():
+        parent = sub_token_tree
+        for value in sub_label_seq:
+            if value not in parent:
+                parent[value] = dict()
+            parent = parent[value]
+
+        parent[end_symbol] = None
+
+    return sub_token_tree

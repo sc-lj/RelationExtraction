@@ -1,4 +1,78 @@
-# 记录相关schema信息的文件路径
-record_schema: 
-# 用于添加到文本前的信息的类型，可选值为：meta,schema
-source_prefix: 
+# 数据预处理部分
+data_params:
+  name: NYT # 数据名称
+  path: data/NYT # 数据路径
+  # 数据处理后的存放的路径
+  post_data_path: &post_data_path data/data/NYT/converted_data
+  data_class: Rel #处理数据的类，即处理后的数据准备采用什么方式进行训练，目前提供了Rel(不识别实体类别，只做关系抽取)、JointER(联合实体关系抽取)、ABSA(细腻度情感抽取)、MRCNER(MRC阅读实体抽取)等
+  split: # 相应的数据集文件
+    train: train_triples.json
+    val: dev_triples.json
+    test: test_triples.json
+  language: en # 语言
+  mapper: # 这是将实体或者关系等标签映射为描述语言
+    subjects: subjects
+    objects: objects
+    /location/location/contains: contains
+    /people/person/place_of_birth: place of birth
+    /business/person/company: company
+    /people/person/place_lived: place lived
+    /location/administrative_division/country: country
+    /location/country/administrative_divisions: administrative divisions
+    /people/person/religion: religion
+    /people/person/nationality: nationality
+    /people/person/children: children
+    /location/country/capital: capital
+    /business/company/place_founded: place founded
+    /people/deceased_person/place_of_death: place of death
+    /business/company/founders: founders
+    /location/neighborhood/neighborhood_of: neighborhood of
+    /business/company/advisors: advisors
+    /people/ethnicity/geographic_distribution: geographic distribution
+    /sports/sports_team_location/teams: teams
+    /sports/sports_team/location: location
+    /business/company_shareholder/major_shareholder_of: major shareholder of
+    /business/company/major_shareholders: major shareholders
+    /people/person/ethnicity: ethnicity
+    /people/ethnicity/people: people
+    /people/person/profession: profession
+    /business/company/industry: industry
+
+    # 关于细腻度情感抽取的mapper
+    # POS: positive
+    # NEG: negative
+    # NEU: neutral
+    # aspect: aspect
+    # opinion: opinion
+
+model_params:
+  # 数据处理后存放的路径
+  post_data_path: *post_data_path
+  # 记录相关schema信息的文件路径
+  record_schema: !join [*post_data_path, /record.schema]
+  # 用于添加到文本前的信息的类型，可选值为：meta,schema
+  source_prefix: meta
+  # tokenization后，目标序列的最长长度
+  max_target_length: 128
+  # 在计算损失中是否忽略与填充标签对应的标记
+  ignore_pad_token_for_loss: true
+  # tokenization后，源序列最长的长度
+  max_source_length: 768
+  # prefix 的最长长度
+  max_prefix_length: -1
+  # positive spot的比率
+  meta_positive_rate: 1.0
+  # 在训练中，Negative Schema的数量
+  meta_negative: 2
+  # 是否对spot prompt和asoc prompt进行排序
+  ordered_prompt: true
+  # null spot 噪声的比率
+  spot_noise: 0.1
+  # null asoc 噪声的比率
+  asoc_noise: 0.
+  # 标签平滑系数
+  label_smoothing_factor: 0.1
+  # 是否采用限制性解码方式
+  constraint_decoding: true
+  # 解码时，束搜索
+  num_beams: 2

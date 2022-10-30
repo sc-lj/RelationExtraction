@@ -1,35 +1,35 @@
-model_name: glre
+model_params:
+  model_name: glre
 
-# model
-dataset: docred
-query: global # global
-more_lstm: false
+  # model
+  dataset: docred
+  query: global # global
+  more_lstm: false
 
-# encoder
-lstm_dim: 256
-out_dim: 256
-type_dim: 20
-dist_dim: 20
-finaldist: true
-types: true
-bilstm_layers: 1
-rgcn_hidden_dim: 256
-rgcn_num_layers: 2
-gcn_in_drop: 0.2
-gcn_out_drop: 0.2
+  # encoder
+  lstm_dim: 256
+  out_dim: 256
+  type_dim: 20
+  dist_dim: 20
+  finaldist: true
+  types: true
+  bilstm_layers: 1
+  rgcn_hidden_dim: 256
+  rgcn_num_layers: 2
+  gcn_in_drop: 0.2
+  gcn_out_drop: 0.2
 
-# network
-drop_i: 0.5 # 0.5
-drop_o: 0.3 # 0.3
-att_head_num: 2
-att_drop: 0.0
-unk_w_prob: 0.5
-min_w_freq: 1
-NA_NUM: 0.5  # 0.1==5:1
-mlp_layers: 1
-mlp_dim: 512
-# 将标签信息融入到训练中的attention中了？
-context_att: false 
-reg: 0.0
-bert_lr: 1.0e-5
-
+  # network
+  drop_i: 0.5 # 0.5
+  drop_o: 0.3 # 0.3
+  att_head_num: 2
+  att_drop: 0.0
+  unk_w_prob: 0.5
+  min_w_freq: 1
+  NA_NUM: 0.5 # 0.1==5:1
+  mlp_layers: 1
+  mlp_dim: 512
+  # 将标签信息融入到训练中的attention中了？
+  context_att: false
+  reg: 0.0
+  bert_lr: 1.0e-5

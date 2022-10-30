@@ -1,30 +1,31 @@
-# 输入序列的长度
-max_seq_length: 384
-# 与subject进行匹配的最长的object pair对数量
-max_pair_length: 16
-# 交叉损失的权重
-alpha: 1.0
-# 使用使用实体类型marker
-use_typemarker: false
-# 使用使用ner预测的结果
-use_ner_results: false
-#
-eval_unidirect: false
-# 对attention_mask 进行上三角mask
-att_right: false
-# 对attention_mask 进行下三角mask
-att_left: false
-# 是否对特定关系采用双向关系识别,即关系的head和tail是无向的
-no_sym: false
-# 对所有的关系组合进行随机shuffle
-shuffle: true
-# 是否对subject，object，[MASK]使用预训练模型原有的embedding进行初始化
-lminit: false
-# bertnonersub,bertsub
-m_type: bertsub
-# 权重衰减
-weight_decay: 0.0
-warmup_steps: -1
+model_params:
+  # 输入序列的长度
+  max_seq_length: 384
+  # 与subject进行匹配的最长的object pair对数量
+  max_pair_length: 16
+  # 交叉损失的权重
+  alpha: 1.0
+  # 使用使用实体类型marker
+  use_typemarker: false
+  # 使用使用ner预测的结果
+  use_ner_results: false
+  #
+  eval_unidirect: false
+  # 对attention_mask 进行上三角mask
+  att_right: false
+  # 对attention_mask 进行下三角mask
+  att_left: false
+  # 是否对特定关系采用双向关系识别,即关系的head和tail是无向的
+  no_sym: false
+  # 对所有的关系组合进行随机shuffle
+  shuffle: true
+  # 是否对subject，object，[MASK]使用预训练模型原有的embedding进行初始化
+  lminit: false
+  # bertnonersub,bertsub
+  m_type: bertsub
+  # 权重衰减
+  weight_decay: 0.0
+  warmup_steps: -1
 
-eval_logsoftmax: true
-eval_softmax: false
+  eval_logsoftmax: true
+  eval_softmax: false

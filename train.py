@@ -13,18 +13,26 @@ from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from pytorch_lightning.loggers import TensorBoardLogger
 
 
+def join(loader, node):
+    seq = loader.construct_sequence(node)
+    return ''.join([str(i) for i in seq])
+
+
+yaml.add_constructor('!join', join)
+
+
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="plmarker",
-                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel", "glre", "plmarker"])
-    parser.add_argument('--pretrain_path', type=str, default="./bertbaseuncased", help='定义预训练模型路径')
+    parser.add_argument('--model_type', default="uie",
+                        type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel", "glre", "plmarker", "uie"])
+    parser.add_argument('--pretrain_path', type=str, default="./uie-base-en", help='定义预训练模型路径')
     parser.add_argument('--data_dir', type=str, default="data/scierc", help='定义数据集路径')
     parser.add_argument('--lr', default=2e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=20, type=int, help='specify the epoch size')
     parser.add_argument('--batch_size', default=8, type=int, help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
     parser.add_argument('--float16', default=False, type=bool, help='是否采用浮点16进行半精度计算')
-    parser.add_argument('--grad_accumulations_steps', default=2, type=int, help='梯度累计步骤')
+    parser.add_argument('--grad_accumulations_steps', default=3, type=int, help='梯度累计步骤')
 
     # 不同学习率scheduler的参数
     parser.add_argument('--decay_rate', default=0.999, type=float, help='StepLR scheduler 相关参数')
@@ -33,11 +41,13 @@ def parser_args():
     parser.add_argument('--rewarm_epoch_num', default=2, type=int, help='CosineAnnealingWarmRestarts scheduler 相关参数')
 
     args = parser.parse_args()
+
     # 根据超参数文件更新参数
     config_file = os.path.join("config", "{}.yaml".format(args.model_type))
     with open(config_file, 'r') as f:
         config = yaml.load(f, Loader=yaml.Loader)
-    args = update_arguments(args, config)
+    args = update_arguments(args, config['model_params'])
+    args.config_file = config_file
 
     return args
 
@@ -195,6 +205,28 @@ def main():
         save_temp_model = os.path.join(tb_logger.log_dir, "models")
         shutil.copytree("PLMarker", save_temp_model)
 
+    elif args.model_type == "uie":
+        from UIE import UIEPytochLighting, UIEDataset, convert_graph, add_special_token_tokenizer, CollateFn
+        from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
+        # 数据格式转换
+        # convert_graph(args.config_file)
+
+        tokenizer = add_special_token_tokenizer(args.pretrain_path)
+
+        t5_model = T5ForConditionalGeneration.from_pretrained(args.pretrain_path)
+        t5_model.resize_token_embeddings(len(tokenizer))
+
+        collate_fn = CollateFn(args, tokenizer, t5_model)
+        train_dataset = UIEDataset(args, tokenizer, is_training=True)
+        train_dataloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=True)
+
+        val_dataset = UIEDataset(args, tokenizer, is_training=False)
+        val_dataloader = DataLoader(val_dataset, collate_fn=collate_fn, batch_size=args.batch_size, shuffle=False)
+
+        model = UIEPytochLighting(args, tokenizer, t5_model)
+        save_temp_model = os.path.join(tb_logger.log_dir, "models")
+        shutil.copytree("UIE", save_temp_model)
+
     else:
         raise ValueError(f"目前不支持 该model type:{args.model_type}")
 
@@ -218,7 +250,7 @@ def main():
     swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=args.epoch,
-                         gpus=[1],
+                         gpus=[0],
                          logger=tb_logger,
                          # accelerator = 'dp',
                          # plugins=DDPPlugin(find_unused_parameters=True),
