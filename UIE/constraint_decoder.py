@@ -23,6 +23,15 @@ def match_sublist(the_list, to_match):
 
 
 def find_bracket_position(generated_text, _type_start, _type_end):
+    """找到生成的文本中，标签开始type_start和标签结束type_end的index，以便判断后续的操作类型
+    Args:
+        generated_text (_type_): 生成的文本ids
+        _type_start (_type_): type_start的id
+        _type_end (_type_): type_end的id
+
+    Returns:
+        _type_: _description_
+    """
     bracket_position = {_type_start: list(), _type_end: list()}
     for index, char in enumerate(generated_text):
         if char in bracket_position:

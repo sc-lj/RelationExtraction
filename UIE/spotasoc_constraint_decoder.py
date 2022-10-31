@@ -15,9 +15,9 @@ class SpotAsocConstraintDecoder(ConstraintDecoder):
         self.tree_end = self.tokenizer.convert_tokens_to_ids([SPAN_START])[0]
         self.type_tree = get_label_name_tree(type_schema.type_list, self.tokenizer, end_symbol=self.tree_end)
         self.role_tree = get_label_name_tree(type_schema.role_list, self.tokenizer, end_symbol=self.tree_end)
-        self.type_start = self.tokenizer.convert_tokens_to_ids([TYPE_START])[0]
-        self.type_end = self.tokenizer.convert_tokens_to_ids([TYPE_END])[0]
-        self.span_start = self.tokenizer.convert_tokens_to_ids([SPAN_START])[0]
+        self.type_start = self.tokenizer.convert_tokens_to_ids([TYPE_START])[0]  # 标签的开始标志
+        self.type_end = self.tokenizer.convert_tokens_to_ids([TYPE_END])[0]  # 标签的结束标志
+        self.span_start = self.tokenizer.convert_tokens_to_ids([SPAN_START])[0]  # 文本span的开始标志
         self.null_span = self.tokenizer.convert_tokens_to_ids([null_span])[0]
         self.text_start = self.tokenizer.convert_tokens_to_ids([TEXT_START])[0]
 
@@ -28,7 +28,7 @@ class SpotAsocConstraintDecoder(ConstraintDecoder):
         # special_token_set = {EVENT_TYPE_LEFT, EVENT_TYPE_RIGHT}
         special_token_set = {self.type_start, self.type_end, self.span_start}
         special_index_token = list(filter(lambda x: x[1] in special_token_set, list(enumerate(tgt_generated))))
-
+        # 生成的最后一个特殊字符
         last_special_index, last_special_token = special_index_token[-1]
 
         if len(special_index_token) == 1:
@@ -36,18 +36,25 @@ class SpotAsocConstraintDecoder(ConstraintDecoder):
                 return 'error', 0
 
         bracket_position = find_bracket_position(tgt_generated, _type_start=self.type_start, _type_end=self.type_end)
+        # type_start的数量，和type_end的数量
         start_number, end_number = len(bracket_position[self.type_start]), len(bracket_position[self.type_end])
 
+        # 两者相等，结束生成任务
         if start_number == end_number:
             return 'end_generate', -1
+        # type_start的数量比type_end的数量多一个，开始新的生成
         if start_number == end_number + 1:
             state = 'start_first_generation'
+        # type_start的数量比type_end的数量多两个，开始触发相关词生成
         elif start_number == end_number + 2:
             state = 'generate_trigger'
+            # 如果生成的最后一个特殊字符是span_start,那么开始生成触发词文本
             if last_special_token == self.span_start:
                 state = 'generate_trigger_text'
+        # type_start的数量比type_end的数量多三个，开始新的生成角色文本
         elif start_number == end_number + 3:
             state = 'generate_role'
+            # 如果生成的最后一个特殊字符是span_start,那么开始生成角色文本
             if last_special_token == self.span_start:
                 state = 'generate_role_text'
         else:

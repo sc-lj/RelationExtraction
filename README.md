@@ -165,6 +165,13 @@ PLMarker 是采用pipline的方式进行关系预测，即先利用预测好的�
 ![overview](docs/PLMarker-Overview.png)
 
 
+# UIE🦌
+
+```
+
+<extra_id_0> <extra_id_0> subjects <extra_id_5> McCain <extra_id_0> place lived <extra_id_5> Arizona <extra_id_1> <extra_id_1> <extra_id_0> objects <extra_id_5> Arizona <extra_id_1> <extra_id_1>
+```
+
 # 项目说明
 
 本项目主要是在NYT句子集关系抽取数据集和DocRED篇章级关系抽取数据进行相关模型的实验。相应的数据下载后解压到data文件夹中。
