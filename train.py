@@ -209,7 +209,7 @@ def main():
         from UIE import UIEPytochLighting, UIEDataset, convert_graph, add_special_token_tokenizer, CollateFn
         from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
         # 数据格式转换
-        # convert_graph(args.config_file)
+        convert_graph(args.config_file)
 
         tokenizer = add_special_token_tokenizer(args.pretrain_path)
 

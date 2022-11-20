@@ -900,6 +900,14 @@ def convert_spot_asoc_name(spot_asoc_instance, structure_maker):
 
 
 def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
+    """构建类型列表树
+    Args:
+        label_name_list ([type]): [实体的类型列表或者角色的类型列表]
+        tokenizer ([type]): [description]
+        end_symbol ([type]): [结束符号标志]
+    Returns:
+        [type]: [description]
+    """
     sub_token_tree = dict()
 
     label_tree = dict()

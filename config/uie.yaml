@@ -71,7 +71,7 @@ model_params:
   # null asoc 噪声的比率
   asoc_noise: 0.
   # 标签平滑系数
-  label_smoothing_factor: 0.1
+  label_smoothing_factor: 0.
   # 是否采用限制性解码方式
   constraint_decoding: true
   # 解码时，束搜索
