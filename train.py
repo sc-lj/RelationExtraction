@@ -12,14 +12,10 @@ from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, Stochast
 from transformers.models.bert.tokenization_bert_fast import BertTokenizerFast
 from pytorch_lightning.loggers import TensorBoardLogger
 
-
 def join(loader, node):
     seq = loader.construct_sequence(node)
     return ''.join([str(i) for i in seq])
-
-
 yaml.add_constructor('!join', join)
-
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
@@ -29,7 +25,7 @@ def parser_args():
     parser.add_argument('--data_dir', type=str, default="data/scierc", help='定义数据集路径')
     parser.add_argument('--lr', default=2e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=20, type=int, help='specify the epoch size')
-    parser.add_argument('--batch_size', default=8, type=int, help='specify the batch size')
+    parser.add_argument('--batch_size', default=16, type=int, help='specify the batch size')
     parser.add_argument('--output_path', default="event_extract", type=str, help='将每轮的验证结果保存的路径')
     parser.add_argument('--float16', default=False, type=bool, help='是否采用浮点16进行半精度计算')
     parser.add_argument('--grad_accumulations_steps', default=3, type=int, help='梯度累计步骤')
@@ -209,7 +205,7 @@ def main():
         from UIE import UIEPytochLighting, UIEDataset, convert_graph, add_special_token_tokenizer, CollateFn
         from transformers.models.t5.modeling_t5 import T5ForConditionalGeneration
         # 数据格式转换
-        # convert_graph(args.config_file)
+        convert_graph(args.config_file)
 
         tokenizer = add_special_token_tokenizer(args.pretrain_path)
 
@@ -247,7 +243,7 @@ def main():
                                             )
 
     ema_callback = EMACallBack()
-    swa_callback = StochasticWeightAveraging()
+    # swa_callback = StochasticWeightAveraging()
 
     trainer = pl.Trainer(max_epochs=args.epoch,
                          gpus=[0],
@@ -260,7 +256,7 @@ def main():
                          accumulate_grad_batches=args.grad_accumulations_steps,  # 累计梯度计算
                          precision=16 if args.float16 else 32,  # 半精度训练
                          gradient_clip_val=3,  # 梯度剪裁,梯度范数阈值
-                         progress_bar_refresh_rate=5,  # 进度条默认每几个step更新一次
+                         log_every_n_steps=5,  # 进度条默认每几个step更新一次
                          # O0：纯FP32训练,
                          # O1：混合精度训练，根据黑白名单自动决定使用FP16（GEMM, 卷积）还是FP32（Softmax）进行计算。
                          # O2：“几乎FP16”混合精度训练，不存在黑白名单，除了Batch norm，几乎都是用FP16计算

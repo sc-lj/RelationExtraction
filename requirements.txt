@@ -1,1 +1,1 @@
-pytorch-lightning==1.6.4
+pytorch-lightning==1.7.7

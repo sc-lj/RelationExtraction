@@ -9,7 +9,7 @@ from transformers.models.bart.modeling_bart import BartForConditionalGeneration
 from transformers import DataCollatorForSeq2Seq
 from UIE.scorer import *
 from transformers.trainer_pt_utils import LabelSmoother
-from UIE.spotasoc_constraint_decoder import get_constraint_decoder
+from UIE.constraint_decoder import get_constraint_decoder
 
 
 class UIEPytochLighting(pl.LightningModule):
