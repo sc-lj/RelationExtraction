@@ -46,6 +46,7 @@ class UIEPytochLighting(pl.LightningModule):
             self.label_smoother = LabelSmoother(epsilon=self.args.label_smoothing_factor)
         else:
             self.label_smoother = None
+        self.loss = nn.CrossEntropyLoss(ignore_index=-100)
         if args.record_schema and os.path.exists(args.record_schema):
             self.record_schema = RecordSchema.read_from_file(args.record_schema)
         else:
@@ -67,7 +68,11 @@ class UIEPytochLighting(pl.LightningModule):
     def training_step(self, inputs, batch_idx):
         labels = inputs.pop("labels")
         outputs = self.model(**inputs)
-        loss = self.label_smoother(outputs, labels)
+        if self.label_smoother is None:
+            logits = outputs['logits']
+            loss = self.loss(logits.view(-1, logits.size(-1)), labels.view(-1))
+        else:
+            loss = self.label_smoother(outputs, labels)
         return loss
 
     def validation_step(self, batch, batch_idx):

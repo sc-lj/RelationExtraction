@@ -14,6 +14,7 @@ from typing import Optional, Union
 from collections import OrderedDict
 from transformers import PreTrainedTokenizerBase, PreTrainedModel
 from transformers.file_utils import PaddingStrategy
+from transformers import BertTokenizer
 
 SPOT_PROMPT = '<spot>'
 ASOC_PROMPT = '<asoc>'

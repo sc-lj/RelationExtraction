@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Dataset
 from transformers.models.t5.tokenization_t5_fast import T5TokenizerFast
 from transformers.models.bart.tokenization_bart_fast import BartTokenizerFast
 from UIE.utils import RecordSchema, PrefixGenerator, TYPE_START, TYPE_END, TEXT_START, SPAN_START, SPOT_PROMPT, ASOC_PROMPT, null_span
-from UIE.utils import SpotAsocNoiser, DynamicSSIGenerator, DataCollatorForMetaSeq2Seq
+from UIE.utils import SpotAsocNoiser, DynamicSSIGenerator, DataCollatorForMetaSeq2Seq, T5BertTokenizer
 from transformers import DataCollatorForSeq2Seq
 
 
@@ -127,18 +127,16 @@ def add_special_token_tokenizer(pretrain_path):
     Returns:
         _type_: _description_
     """
-    tokenizer = T5TokenizerFast.from_pretrained(pretrain_path)
-    to_remove_token_list = list()
-    if tokenizer.bos_token:
-        to_remove_token_list += [tokenizer.bos_token]
-    if tokenizer.eos_token:
-        to_remove_token_list += [tokenizer.eos_token]
-    if tokenizer.pad_token:
-        to_remove_token_list += [tokenizer.pad_token]
+    if 'char' in pretrain_path:
+        tokenizer = T5BertTokenizer.from_pretrained(pretrain_path)
+    else:
+        tokenizer = T5TokenizerFast.from_pretrained(pretrain_path)
     to_add_special_token = list()
     for special_token in [TYPE_START, TYPE_END, TEXT_START, SPAN_START, SPOT_PROMPT, ASOC_PROMPT]:
         if special_token not in tokenizer.get_vocab():
             to_add_special_token += [special_token]
-    tokenizer.add_tokens(tokenizer.additional_special_tokens + to_add_special_token, special_tokens=True)
+    # tokenizer.add_tokens(tokenizer.additional_special_tokens + to_add_special_token, special_tokens=True)
+    tokenizer.add_special_tokens(
+        {"additional_special_tokens": tokenizer.special_tokens_map_extended['additional_special_tokens'] + to_add_special_token})
 
     return tokenizer
