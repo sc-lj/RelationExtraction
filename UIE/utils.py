@@ -41,18 +41,18 @@ split_bracket = re.compile(r"<extra_id_\d>")
 class BaseStructureMarker():
     def __init__(self) -> None:
         super().__init__()
-        self.sent_start = '<extra_id_0>'
-        self.sent_end = '<extra_id_1>'
-        self.record_start = '<extra_id_0>'
-        self.record_end = '<extra_id_1>'
-        self.span_start = '<extra_id_0>'
-        self.span_end = '<extra_id_1>'
-        self.text_start = '<extra_id_2>'
+        self.sent_start = TYPE_START
+        self.sent_end = TYPE_END
+        self.record_start = TYPE_START
+        self.record_end = TYPE_END
+        self.span_start = TYPE_START
+        self.span_end = TYPE_END
+        self.text_start = TEXT_START
         self.source_span_start = '<extra_id_3>'
         self.source_span_end = '<extra_id_4>'
-        self.target_span_start = '<extra_id_5>'
-        self.null_span = '<extra_id_6>'
-        self.null_label = '<extra_id_7>'
+        self.target_span_start = SPAN_START
+        self.null_span = null_span
+        self.null_label = null_label
 
 
 def add_special_token(tokenizer):
@@ -834,11 +834,7 @@ def convert_spot_asoc(spot_asoc_instance, structure_maker):
     """
     spot_instance_str_rep_list = list()
     for spot in spot_asoc_instance:
-        spot_str_rep = [
-            spot['label'],
-            structure_maker.target_span_start,
-            spot['span'],
-        ]
+        spot_str_rep = [spot['label'],structure_maker.target_span_start,spot['span']]
         for asoc_label, asoc_span in spot.get('asoc', list()):
             asoc_str_rep = [
                 structure_maker.span_start,
@@ -901,22 +897,24 @@ def convert_spot_asoc_name(spot_asoc_instance, structure_maker):
 
 
 def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
-    """构建类型列表树
+    """构建label名称id的树结构，便于后续查找
     Args:
-        label_name_list ([type]): [实体的类型列表或者角色的类型列表]
-        tokenizer ([type]): [description]
-        end_symbol ([type]): [结束符号标志]
+        label_name_list (_type_): _description_
+        tokenizer (_type_): _description_
+        end_symbol (str, optional): _description_. Defaults to '<end>'.
     Returns:
-        [type]: [description]
+        _type_: _description_
     """
     sub_token_tree = dict()
 
     label_tree = dict()
     for typename in label_name_list:
+        # 获取当前标签的token id
         after_tokenized = tokenizer.encode(typename, add_special_tokens=False)
         # label_tree[typename] = tokenizer.convert_ids_to_tokens(after_tokenized)
         label_tree[typename] = after_tokenized
 
+    # 遍历，构建树结构
     for _, sub_label_seq in label_tree.items():
         parent = sub_token_tree
         for value in sub_label_seq:
@@ -929,107 +927,3 @@ def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
     return sub_token_tree
 
 
-class T5BertTokenizer(BertTokenizer):
-
-    model_input_names = ["input_ids", "attention_mask"]
-
-    def __init__(self,
-                 vocab_file,
-                 do_lower_case=False,
-                 do_basic_tokenize=True,
-                 never_split=None,
-                 unk_token="<unk>",
-                 sep_token=None,
-                 pad_token="<pad>",
-                 cls_token=None,
-                 mask_token=None,
-                 space_token="<space>",
-                 tokenize_chinese_chars=True,
-                 strip_accents=None,
-                 **kwargs):
-        super().__init__(
-            vocab_file=vocab_file,
-            do_lower_case=do_lower_case,
-            do_basic_tokenize=do_basic_tokenize,
-            never_split=never_split,
-            unk_token=unk_token,
-            sep_token=sep_token,
-            pad_token=pad_token,
-            cls_token=cls_token,
-            mask_token=mask_token,
-            tokenize_chinese_chars=tokenize_chinese_chars,
-            strip_accents=strip_accents,
-            **kwargs, )
-
-        self._space_token = space_token
-
-    def get_vocab(self):
-        vocab = {
-            self.convert_ids_to_tokens(i): i
-            for i in range(self.vocab_size)
-        }
-        vocab.update(self.added_tokens_encoder)
-        return vocab
-
-    def tokenize(self, text):
-        import re
-        # Remove space between <extra_id_*> <spot> <asoc>
-        split_bracket = re.compile(
-            r"\s*<extra_id_\d>\s*|\s*<spot>\s*|\s*<asoc>\s*")
-
-        if len(split_bracket.split(text)) > 1:
-            new_text_list = [split_bracket.split(text)[0]]
-            for item in zip(
-                    split_bracket.findall(text), split_bracket.split(text)[1:]):
-                new_text_list += [item[0].strip(), item[1]]
-            text = "".join(new_text_list)
-        text = text.replace(' ', self._space_token)
-        return super().tokenize(text)
-
-    def _add_eos_if_not_present(self, token_ids: List[int]) -> List[int]:
-        """Do not add eos again if user already added it."""
-        if len(token_ids) > 0 and token_ids[-1] == self.eos_token_id:
-            return token_ids
-        else:
-            return token_ids + [self.eos_token_id]
-
-    def build_inputs_with_special_tokens(
-            self, token_ids_0: List[int],
-            token_ids_1: Optional[List[int]] = None) -> List[int]:
-        """
-        Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
-        adding special tokens. A sequence has the following format:
-
-        - single sequence: ``X </s>``
-        - pair of sequences: ``A </s> B </s>``
-
-        Args:
-            token_ids_0 (:obj:`List[int]`):
-                List of IDs to which the special tokens will be added.
-            token_ids_1 (:obj:`List[int]`, `optional`):
-                Optional second list of IDs for sequence pairs.
-
-        Returns:
-            :obj:`List[int]`: List of `input IDs <../glossary.html#input-ids>`__ with the appropriate special tokens.
-        """
-        token_ids_0 = self._add_eos_if_not_present(token_ids_0)
-        if token_ids_1 is None:
-            return token_ids_0
-        else:
-            token_ids_1 = self._add_eos_if_not_present(token_ids_1)
-            return token_ids_0 + token_ids_1
-
-    def _decode(self,
-                token_ids: List[int],
-                skip_special_tokens: bool = False,
-                **kwargs) -> str:
-        tokens = self.convert_ids_to_tokens(
-            token_ids, skip_special_tokens=skip_special_tokens)
-
-        # Fix '##' subtoken
-        tokens = [x.lstrip('#') if x.startswith("##") else x for x in tokens]
-
-        x_str = "".join(tokens)
-        x_str = x_str.replace(' ', '')
-        x_str = x_str.replace(self._space_token, ' ')
-        return x_str
