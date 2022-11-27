@@ -81,11 +81,7 @@ class UIEPytochLighting(pl.LightningModule):
             "prefix_allowed_tokens_fn": prefix_allowed_tokens_fn if self.constraint_decoder else None,
         }
 
-        generated_tokens = self.model.generate(
-            batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            **gen_kwargs,
-        )
+        generated_tokens = self.model.generate(batch["input_ids"],attention_mask=batch["attention_mask"],**gen_kwargs)
 
         # in case the batch is shorter than max length, the output should be padded
         if generated_tokens.shape[-1] < gen_kwargs["max_length"]:

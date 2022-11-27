@@ -248,7 +248,7 @@ def main():
     trainer = pl.Trainer(max_epochs=args.epoch,
                          gpus=[0],
                          logger=tb_logger,
-                         # accelerator = 'dp',
+                         accelerator = 'cuda',
                          # plugins=DDPPlugin(find_unused_parameters=True),
                          check_val_every_n_epoch=1,  # 每多少epoch执行一次validation
                          callbacks=[checkpoint_callback,

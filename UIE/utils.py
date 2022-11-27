@@ -40,18 +40,18 @@ split_bracket = re.compile(r"<extra_id_\d>")
 class BaseStructureMarker():
     def __init__(self) -> None:
         super().__init__()
-        self.sent_start = '<extra_id_0>'
-        self.sent_end = '<extra_id_1>'
-        self.record_start = '<extra_id_0>'
-        self.record_end = '<extra_id_1>'
-        self.span_start = '<extra_id_0>'
-        self.span_end = '<extra_id_1>'
-        self.text_start = '<extra_id_2>'
+        self.sent_start = TYPE_START
+        self.sent_end = TYPE_END
+        self.record_start = TYPE_START
+        self.record_end = TYPE_END
+        self.span_start = TYPE_START
+        self.span_end = TYPE_END
+        self.text_start = TEXT_START
         self.source_span_start = '<extra_id_3>'
         self.source_span_end = '<extra_id_4>'
-        self.target_span_start = '<extra_id_5>'
-        self.null_span = '<extra_id_6>'
-        self.null_label = '<extra_id_7>'
+        self.target_span_start = SPAN_START
+        self.null_span = null_span
+        self.null_label = null_label
 
 
 def add_special_token(tokenizer):
@@ -833,11 +833,7 @@ def convert_spot_asoc(spot_asoc_instance, structure_maker):
     """
     spot_instance_str_rep_list = list()
     for spot in spot_asoc_instance:
-        spot_str_rep = [
-            spot['label'],
-            structure_maker.target_span_start,
-            spot['span'],
-        ]
+        spot_str_rep = [spot['label'],structure_maker.target_span_start,spot['span']]
         for asoc_label, asoc_span in spot.get('asoc', list()):
             asoc_str_rep = [
                 structure_maker.span_start,
@@ -900,14 +896,24 @@ def convert_spot_asoc_name(spot_asoc_instance, structure_maker):
 
 
 def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
+    """构建label名称id的树结构，便于后续查找
+    Args:
+        label_name_list (_type_): _description_
+        tokenizer (_type_): _description_
+        end_symbol (str, optional): _description_. Defaults to '<end>'.
+    Returns:
+        _type_: _description_
+    """
     sub_token_tree = dict()
 
     label_tree = dict()
     for typename in label_name_list:
+        # 获取当前标签的token id
         after_tokenized = tokenizer.encode(typename, add_special_tokens=False)
         # label_tree[typename] = tokenizer.convert_ids_to_tokens(after_tokenized)
         label_tree[typename] = after_tokenized
 
+    # 遍历，构建树结构
     for _, sub_label_seq in label_tree.items():
         parent = sub_token_tree
         for value in sub_label_seq:
@@ -918,3 +924,5 @@ def get_label_name_tree(label_name_list, tokenizer, end_symbol='<end>'):
         parent[end_symbol] = None
 
     return sub_token_tree
+
+
