@@ -167,10 +167,55 @@ PLMarker 是采用pipline的方式进行关系预测，即先利用预测好的�
 
 # UIE🦌
 
+# 针对文本"As those political moves played out , the new United States defense secretary , Robert M. Gates , met with enlisted men and women in Baghdad to talk about the possibility that more troops could be sent to Iraq ."构建相关record格式：
+uie规定了关系的头尾（subjects,objects）是有顺序的，如果文本中，objects出现在subjects前面，那么先声明objects的实体，然后是一个三元组组合，即声明subjects、关系、objects值；
+如果objects出现在subjects之后，那么先生成一个三元组组合，即声明subjects、关系、objects值，然后在声明一个objects。
+
+```
+# 组合的开始标志
+TYPE_START = '<extra_id_0>'
+# 组合的结束标志
+TYPE_END = '<extra_id_1>'
+# 文本span的开始标志
+SPAN_START = '<extra_id_5>'
+
+#以该文本是objects出现subjects之前为例。
+{"text": "As those political moves played out , the new United States defense secretary , Robert M. Gates , met with enlisted men and women in Baghdad to talk about the possibility that more troops could be sent to Iraq .", "tokens": ["As", "those", "political", "moves", "played", "out", ",", "the", "new", "United", "States", "defense", "secretary", ",", "Robert", "M.", "Gates", ",", "met", "with", "enlisted", "men", "and", "women", "in", "Baghdad", "to", "talk", "about", "the", "possibility", "that", "more", "troops", "could", "be", "sent", "to", "Iraq", "."],
+"record": "<extra_id_0> 
+            <extra_id_0> objects <extra_id_5> Baghdad <extra_id_1> 
+            <extra_id_0> subjects <extra_id_5> Iraq 
+            <extra_id_0> capital <extra_id_5> Baghdad <extra_id_1> 
+            <extra_id_0> contains <extra_id_5> Baghdad <extra_id_1> 
+            <extra_id_1>
+            <extra_id_1>",
+"entity": [{"type": "subjects","offset": [38],text": "Iraq"},
+            {"type": "objects","offset": [25],"text": "Baghdad"}],
+"relation": [{"type": "capital",
+    "args": [{"type": "subjects",
+            "offset": [38],
+            "text": "Iraq"},
+            {"type": "objects",
+            "offset": [25],
+            "text": "Baghdad"}]},
+    {"type": "contains",
+    "args": [{"type": "subjects",
+            "offset": [38],
+            "text": "Iraq"},
+            {"type": "objects",
+            "offset": [25],
+            "text": "Baghdad"}]
+    }],
+    "event": [],
+    "spot": ["subjects","objects"],
+    "asoc": ["capital","contains"
+    ],
+    "spot_asoc": [
+        {"span": "Baghdad","label": "objects","asoc": []},
+        {span": "Iraq","label": "subjects","asoc": [["capital","Baghdad"],["contains","Baghdad"]]}
+        ]
+}
 ```
 
-<extra_id_0> <extra_id_0> subjects <extra_id_5> McCain <extra_id_0> place lived <extra_id_5> Arizona <extra_id_1> <extra_id_1> <extra_id_0> objects <extra_id_5> Arizona <extra_id_1> <extra_id_1>
-```
 
 # 项目说明
 

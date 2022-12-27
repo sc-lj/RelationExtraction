@@ -275,7 +275,7 @@ def eval_pred(pred_lns: List[str], tgt_lns: List[str], label_constraint: RecordS
     record_result = record_metric.compute_f1(prefix='record-')
     ordered_record_result = ordered_record_metric.compute_f1(prefix='ordered-record-')
 
-    overall_f1 = spot_result.get('spot-F1', 0.) + asoc_result.get('asoc-F1', 0.)
+    overall_f1 = (spot_result.get('spot-F1', 0.) + asoc_result.get('asoc-F1', 0.))/2
     # print(counter)
     result = {'overall-F1': overall_f1}
     result.update(spot_result)

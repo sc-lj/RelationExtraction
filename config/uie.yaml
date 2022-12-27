@@ -18,7 +18,7 @@ data_params:
     /business/person/company: company
     /people/person/place_lived: place lived
     /location/administrative_division/country: country
-    /location/country/administrative_divisions: administrative divisions
+    /location/country/administrative_divisions: administrative division
     /people/person/religion: religion
     /people/person/nationality: nationality
     /people/person/children: children
