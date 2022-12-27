@@ -18,3 +18,4 @@ model_params:
   hidden_fuse: true
   # 融合倒数后几层的hidden states,最多12层
   hidden_fuse_layers: 5
+  avg_pool: false
