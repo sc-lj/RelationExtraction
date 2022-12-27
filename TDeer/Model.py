@@ -259,7 +259,7 @@ class ObjModel(nn.Module):
         return extended_attention_mask
 
 
-class TDEER(BertPreTrainedModel):
+class TDEER(nn.Module):
     def __init__(self, args):
         super().__init__()
         pretrain_path = args.pretrain_path
@@ -290,7 +290,7 @@ class TDEER(BertPreTrainedModel):
 class TDEERPytochLighting(pl.LightningModule):
     def __init__(self, args) -> None:
         super().__init__()
-        self.model = TDEER.from_pretrained(args.pretrain_path, args)
+        self.model = TDEER(args)
         # 只针对对抗训练时，关闭自动优化
         # self.automatic_optimization = False
         self.fgm = FGM(self.model)
