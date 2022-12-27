@@ -259,7 +259,7 @@ class ObjModel(nn.Module):
         return extended_attention_mask
 
 
-class TDEER(nn.Module):
+class TDEER(BertPreTrainedModel):
     def __init__(self, args):
         super().__init__()
         pretrain_path = args.pretrain_path

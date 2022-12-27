@@ -19,10 +19,10 @@ yaml.add_constructor('!join', join)
 
 def parser_args():
     parser = argparse.ArgumentParser(description='各个模型公共参数')
-    parser.add_argument('--model_type', default="uie",
+    parser.add_argument('--model_type', default="tdeer",
                         type=str, help='定义模型类型', choices=['tdeer', "tplinker", "prgc", "spn4re", "one4rel", "glre", "plmarker", "uie"])
     parser.add_argument('--pretrain_path', type=str, default="./uie-base-en", help='定义预训练模型路径')
-    parser.add_argument('--data_dir', type=str, default="data/scierc", help='定义数据集路径')
+    parser.add_argument('--data_dir', type=str, default="data/NYT", help='定义数据集路径')
     parser.add_argument('--lr', default=2e-5, type=float, help='specify the learning rate')
     parser.add_argument('--epoch', default=20, type=int, help='specify the epoch size')
     parser.add_argument('--batch_size', default=16, type=int, help='specify the batch size')
